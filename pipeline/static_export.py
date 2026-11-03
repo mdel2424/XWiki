@@ -93,6 +93,7 @@ def export_static(db, output='data/catalog', limit=None, article_size=256, conte
                 cards = []
         if cards:
             write(f'articles/{(len(rows) - 1) // article_size}.json', cards)
+        write('discovery-weights.json', [min(255, row['people']) for row in rows])
         for alias in db.execute('SELECT x.alias,o.ordinal FROM aliases x JOIN static_ord o ON o.article_id=x.canonical'):
             lookup[bucket(alias['alias'], 64)][alias['alias']] = alias['ordinal']
         for i, values in enumerate(lookup):
@@ -137,6 +138,7 @@ def export_static(db, output='data/catalog', limit=None, article_size=256, conte
             'articleShardSize': article_size, 'contextShardSize': context_size, 'rankShardSize': rank_size,
             'idBuckets': 64, 'searchBuckets': 256, 'coverage': coverage,
             'risingWindowMonths': 6, 'risingSince': six_months_ago(now), 'risingAsOf': now,
+            'discoveryWeights': 'discovery-weights.json',
             'dataBytes': total_bytes, 'dataFiles': files}
         (stage / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
         db.execute('DROP TABLE static_ord')

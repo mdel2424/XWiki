@@ -57,6 +57,7 @@ Source-only changes use the committed catalogue. Pull-to-refresh checks for an u
 `data/catalog/manifest.json` points to a versioned snapshot containing:
 
 - Article-card shards, with global HN counts and Wikipedia metadata.
+- A compact popularity-weight index for weighted discovery without fetching every article card.
 - Separate Rising and recent-order pages. Top order is implicit in document ordinals.
 - Prefix-search posting shards covering the entire exported catalogue.
 - ID/redirect lookup shards.
@@ -68,7 +69,7 @@ The browser lazily fetches these files and caches a bounded number of shards. Se
 
 **Top** ranks the full archive by all-time distinct HN linkers, breaking ties by mention totals. **Rising** ranks activity within the last six calendar months, measured when the ranking is built; older and future-dated mentions do not contribute.
 
-**For you** repeats **8 random discoveries, 1 Rising post and 1 Top post** per ten posts. Random draws span the complete catalogue. The Top and Rising picks are shuffled from the leading 1,000 articles in each ranking, rather than served in popularity order. Refresh changes all three shuffled selections. Each lane keeps its own cursor, refills around overlaps and seen posts, and excludes duplicates across pages. If a lane runs out of eligible posts, remaining discoveries fill the feed.
+**For you** repeats **8 random discoveries, 1 Rising post and 1 Top post** per ten posts. Random draws span the complete catalogue and favor articles linked by more distinct HN users. Weight is `1 + 0.5 × log₂(1 + min(linkers, 255))`: an article linked by 100 people has about 2.9 times the draw weight of one linked by a single person. The logarithm and cap keep the boost moderate; every article remains eligible. The Top and Rising picks are shuffled from the leading 1,000 articles in each ranking, rather than served in popularity order. Refresh changes all three shuffled selections. Each lane keeps its own cursor, refills around overlaps and seen posts, and excludes duplicates across pages. If a lane runs out of eligible posts, remaining discoveries fill the feed.
 
 Hearts boost related titles, summaries and Wikipedia categories within the discovery lane. Not interested downranks similar discoveries. X marks only that post as seen, with Undo. Seen state and hearts persist locally; they are never public HN votes. Top and Rising tabs retain their published ranking order regardless of hearts.
 
@@ -92,7 +93,7 @@ With a committed export but no source database, rebuild just the six-month ranki
 npm run data:rank
 ```
 
-This publishes a new immutable Rising index and switches the manifest atomically, preserving all-time article order and original comment files. Commit the updated manifest and new rank directory before deploying. A full `data:export` also generates the six-month ranking automatically. Static rankings advance when regenerated and published.
+This publishes a new immutable Rising index and switches the manifest atomically, preserving all-time article order and original comment files. Commit the updated manifest and new rank directory before deploying. A full `data:export` also generates the six-month ranking and discovery weights automatically. Use `npm run data:weights` to add or rebuild just the discovery weights from an existing export. Static rankings advance when regenerated and published.
 
 Additional commands are `data:watch`, `data:status`, `data:audit`, and `data:fill-gaps`. Exporting `--limit N` is explicitly marked partial; the default exports the full catalogue. The exporter reads a consistent SQLite snapshot, verifies comment offsets, stages output before replacement, and retains an existing export if generation fails or exceeds its size budget.
 

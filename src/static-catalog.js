@@ -1,3 +1,5 @@
+import { discoveryOrder } from './discovery.js';
+
 const STOP = new Set('a an the and of to in on for with from by is are was were it its as at that this or not be'.split(' '));
 export function searchTerms(text = '') {
   return [...new Set((String(text).normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter(t => !STOP.has(t)))];
@@ -18,7 +20,7 @@ function sample(count, start, size, seed) {
 
 export class StaticCatalog {
   constructor({ base = new URL('../data/catalog/', import.meta.url), fetcher = fetch } = {}) {
-    this.base = new URL(base); this.fetcher = fetcher; this.manifest = null; this.cache = new Map();
+    this.base = new URL(base); this.fetcher = fetcher; this.manifest = null; this.cache = new Map(); this.discovery = null;
   }
   async read(path, { fresh = false } = {}) {
     const url = new URL(path, this.base);
@@ -39,11 +41,28 @@ export class StaticCatalog {
     const manifest = await this.read('manifest.json', { fresh: true });
     if (manifest.kind !== 'wikihack-static' || manifest.version !== 1 || !manifest.articleCount ||
         !/^v-[a-z0-9]+$/.test(manifest.generation)) throw new Error('Static catalogue is missing or unsupported.');
-    if (this.manifest?.generation !== manifest.generation || this.manifest?.risingPath !== manifest.risingPath) this.cache.clear();
+    if (this.manifest?.generation !== manifest.generation || this.manifest?.risingPath !== manifest.risingPath ||
+        this.manifest?.discoveryWeights !== manifest.discoveryWeights) {
+      this.cache.clear(); this.discovery = null;
+    }
     this.manifest = manifest;
     return manifest;
   }
   file(path) { if (!this.manifest) throw new Error('Open the catalogue first.'); return `${this.manifest.generation}/${path}`; }
+  async discoveryOrder(seed) {
+    if (!this.manifest.discoveryWeights) return null; // Older exports still work.
+    if (this.discovery?.seed === seed) return this.discovery.order;
+    const order = this.read(this.file(this.manifest.discoveryWeights)).then(linkers => {
+      if (!Array.isArray(linkers) || linkers.length !== this.manifest.articleCount ||
+          linkers.some(count => !Number.isInteger(count) || count < 0 || count > 255)) throw new Error('Invalid discovery weights.');
+      return discoveryOrder(linkers, seed);
+    }).catch(error => {
+      if (this.discovery?.order === order) this.discovery = null;
+      throw error;
+    });
+    this.discovery = { seed, order };
+    return order;
+  }
   async cards(indices) {
     const size = this.manifest.articleShardSize;
     const unique = [...new Set(indices)].filter(i => Number.isInteger(i) && i >= 0 && i < this.manifest.articleCount);
@@ -104,7 +123,9 @@ export class StaticCatalog {
       const count = lane === 'random' ? this.manifest.articleCount :
         Math.min(1000, lane === 'rising' ? this.manifest.risingCount : this.manifest.articleCount);
       while (sources[lane].length < wanted && positions[lane] < count) {
-        const draw = sample(count, positions[lane], wanted - sources[lane].length, `${lane}:${mix}`);
+        const weighted = lane === 'random' ? await this.discoveryOrder(mix) : null;
+        const draw = weighted ? Array.from(weighted.subarray(positions[lane], positions[lane] + wanted - sources[lane].length)) :
+          sample(count, positions[lane], wanted - sources[lane].length, `${lane}:${mix}`);
         positions[lane] += draw.length;
         const indices = lane === 'rising' ? (await Promise.all(draw.map(async position =>
           (await this.ranks('rising', position, 1))[0]))).filter(i => i != null) : draw;

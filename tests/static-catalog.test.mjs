@@ -61,14 +61,16 @@ db.close()
 test('FYP samples the full archive, shuffles featured ranks, and keeps 8:1:1 across pages', async () => {
   const count = 10000;
   const all = Array.from({ length: count }, (_, i) => ({ id: `en:Article${i}`, title: `Article ${i}`, _index: i,
-    mentions: [], metrics: { distinctLinkers: count - i, mentionCount: count - i } }));
+    mentions: [], metrics: { distinctLinkers: Math.max(1, Math.floor((count - i) / 100)), mentionCount: count - i } }));
   const manifest = { kind: 'wikihack-static', version: 1, generation: 'v-test', articleCount: count,
-    articleShardSize: 256, rankShardSize: 512, risingCount: 1100, risingPath: 'rising-6m-test' };
+    articleShardSize: 256, rankShardSize: 512, risingCount: 1100, risingPath: 'rising-6m-test',
+    discoveryWeights: 'discovery-weights.json' };
   const base = new URL('https://example.github.io/WikiHack-mobile/data/catalog/');
   const catalog = new StaticCatalog({ base, fetcher: async raw => {
     const file = new URL(raw).pathname.slice(base.pathname.length);
     let value;
     if (file === 'manifest.json') value = manifest;
+    else if (file.endsWith('/discovery-weights.json')) value = all.map(a => Math.min(255, a.metrics.distinctLinkers));
     else if (file.includes('/articles/')) {
       const start = Number(file.split('/').at(-1).split('.')[0]) * 256;
       value = all.slice(start, start + 256);

@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from pipeline.static_export import export_static
+from pipeline.discovery import refresh_discovery
 from pipeline.store import connect, ingest, merge_metadata, refresh_stats, resolve_threads, wiki_url
 
 
@@ -38,10 +39,31 @@ class StaticExportTest(unittest.TestCase):
         self.assertEqual(first['context'], {'start': 0, 'count': 2})
         self.assertEqual(second['context'], {'start': 2, 'count': 1})
         self.assertEqual(first['metrics']['distinctLinkers'], 2)
+        self.assertEqual(json.loads((data / manifest['discoveryWeights']).read_text()), [2, 1])
         self.assertEqual(json.loads((data / 'context/0.json').read_text())[0]['storyId'], '1')
         self.assertEqual(json.loads((data / 'context/0.json').read_text())[0]['text'], 'Earth again')
         self.assertEqual(manifest['dataBytes'], sum(p.stat().st_size for p in data.rglob('*.json')))
         self.assertFalse(manifest['coverage']['exportLimited'])
+
+    def test_existing_static_catalogue_can_gain_weights_without_rebuilding_data(self):
+        original = export_static(self.db, self.output, article_size=1)
+        data = self.output / original['generation']
+        card_before = (data / 'articles/0.json').read_bytes()
+        updated = refresh_discovery(self.output)
+        self.assertEqual(updated['generation'], original['generation'])
+        self.assertEqual(json.loads((data / updated['discoveryWeights']).read_text()), [2, 1])
+        self.assertEqual((data / 'articles/0.json').read_bytes(), card_before)
+        self.assertEqual(updated['dataBytes'], sum(p.stat().st_size for p in data.rglob('*.json')))
+        repeated = refresh_discovery(self.output)
+        self.assertEqual(repeated['discoveryWeights'], updated['discoveryWeights'])
+        self.assertEqual(repeated['dataFiles'], updated['dataFiles'])
+        saved = (self.output / 'manifest.json').read_bytes()
+        card = json.loads(card_before)
+        card[0]['_index'] = 99
+        (data / 'articles/0.json').write_text(json.dumps(card))
+        with self.assertRaisesRegex(ValueError, 'article order'):
+            refresh_discovery(self.output)
+        self.assertEqual((self.output / 'manifest.json').read_bytes(), saved)
 
     def test_budget_failure_preserves_previous_complete_export(self):
         first = export_static(self.db, self.output)
