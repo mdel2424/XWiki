@@ -85,7 +85,8 @@ db.close()
   const actions = await first.locator('.post-actions > button').evaluateAll(buttons => buttons.map(b => {
     const rect = b.getBoundingClientRect(); return { left: rect.left, right: rect.right };
   }));
-  assert.ok(actions[2].right - actions[0].left < 200, 'Post actions form a compact group');
+  assert.ok(actions[2].right - actions[0].left <= 280, 'Post actions form a balanced footer');
+  assert.ok(Math.abs((actions[0].right - actions[0].left) - (actions[2].right - actions[2].left)) < .5, 'Equal action touch targets');
   assert.ok(actions[1].left - actions[0].right <= 10);
   const checkActionAlignment = async () => {
     const icons = await first.locator('.post-actions > button svg').evaluateAll(elements => elements.map(el => {
