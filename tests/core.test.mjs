@@ -62,8 +62,9 @@ test('weighted random is repeat-free and deterministic with supplied randomness'
 });
 test('metadata survives mention updates, search includes summaries, HTML stays plain', () => {
   const [article] = articlesFromHits([hit(1, 'a', 'https://en.wikipedia.org/wiki/Earth')]);
-  const merged = mergeArticles([{ ...article, extract: 'A pale blue planet', thumbnail: 'https://example.org/image.png' }], [article]);
+  const merged = mergeArticles([{ ...article, extract: 'A pale blue planet', firstParagraph: 'A complete paragraph.', thumbnail: 'https://example.org/image.png' }], [article]);
   assert.equal(merged[0].extract, 'A pale blue planet');
+  assert.equal(merged[0].firstParagraph, 'A complete paragraph.');
   assert.equal(searchArticles(merged, 'BLUE planet').length, 1);
   assert.equal(plainText('<p>A &amp; B<br><img src=x onerror=alert(1)>&#x1F30D;'), 'A & B\n🌍');
 });

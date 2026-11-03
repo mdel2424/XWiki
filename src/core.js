@@ -79,6 +79,7 @@ export function mergeArticles(existing, incoming) {
     const mentions = new Map(previous.mentions.map(mention => [mention.id, mention]));
     for (const mention of article.mentions) mentions.set(mention.id, mention);
     map.set(article.id, { ...previous, ...article, sourceIds: [...new Set([...(previous.sourceIds || []), ...(article.sourceIds || [])])], extract: article.extract || previous.extract,
+      firstParagraph: article.firstParagraph || previous.firstParagraph,
       thumbnail: article.thumbnail || previous.thumbnail, description: article.description || previous.description,
       mentions: [...mentions.values()].sort((a, b) => b.createdAt - a.createdAt), sample: false });
   }
