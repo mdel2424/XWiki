@@ -27,9 +27,9 @@ const state = {
 let observer, toastTimer, returnFocus, searchTimer, undoAction, homeScroll = 0, homeVisible = 12, generation = 0;
 let refreshingFeed = false;
 const hydrating = new Set();
-const expanded = new Set(), expanding = new Set();
+const expanded = new Set(), paragraphAttempts = new Set();
 const compactCount = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
-const paragraphText = article => firstParagraph(article.firstParagraph || article.extract || article.description || 'An article linked in a Hacker News discussion.');
+const paragraphText = article => firstParagraph(article.firstParagraph || (article.sample ? article.extract : '') || article.description || 'An article linked in a Hacker News discussion.');
 const collection = () => state.articles.length ? state.articles : SAMPLE_ARTICLES;
 const liked = article => Boolean(state.profile.likes[article.id]);
 const isHidden = article => hidden(article, state.profile);
@@ -103,7 +103,7 @@ function renderPage() {
 function card(article, index) {
   const stats = metrics(article), media = safeHttps(article.thumbnail);
   const paragraph = paragraphText(article), open = expanded.has(article.id);
-  const canExpand = paragraph !== excerpt(paragraph) || !article.firstParagraph && !article.sample;
+  const canExpand = Boolean(article.firstParagraph || article.sample) && paragraph !== excerpt(paragraph);
   return `<article class="article-card" data-id="${esc(article.id)}">
     <div class="post-avatar" aria-hidden="true">W</div><div class="post-body">
       <div class="post-byline"><strong>Wikipedia</strong><span class="verified" aria-label="Wikipedia source">${icon('check')}</span><span class="handle">@${esc(article.lang)}wiki</span>
@@ -113,7 +113,7 @@ function card(article, index) {
       ${article.sample ? '<div class="preview-tag">Preview collection</div>' : `<button class="mention-label" data-action="context"><span class="hn-mini">Y</span> Linked by ${stats.people.toLocaleString()} ${stats.people === 1 ? 'person' : 'people'} on HN</button>`}
       <a class="article-title" href="${esc(wikiHref(article))}" ${wikiTarget}><h2>${esc(article.title)}</h2></a>
       <p class="article-extract" id="post-text-${index}">${esc(open ? paragraph : excerpt(paragraph))}</p>
-      ${canExpand || open ? `<button class="read-more" data-action="expand" aria-expanded="${open}" aria-controls="post-text-${index}" aria-busy="${expanding.has(article.id)}">${open ? 'Read less' : 'Read more'}</button>` : ''}
+      ${canExpand || open ? `<button class="read-more" data-action="expand" aria-expanded="${open}" aria-controls="post-text-${index}">${open ? 'Read less' : 'Read more'}</button>` : ''}
       ${state.settings.images !== false && (media || article.illustration) ? `<a class="article-media ${!media ? 'illustration-media' : ''}" href="${esc(wikiHref(article))}" ${wikiTarget} aria-label="Open ${esc(article.title)} on Wikipedia"><img src="${esc(media || `images/${article.illustration}.svg`)}" alt="${media ? esc(article.title) + ' — Wikipedia lead image' : 'WikiHack illustration'}" loading="lazy" referrerpolicy="no-referrer"><span class="media-caption">${media ? 'wikipedia.org' : 'WikiHack illustration'}</span></a>` : ''}
       <div class="post-actions">
         <button data-action="context" aria-label="View Hacker News mentions" title="${stats.count.toLocaleString()} HN mentions">${icon('comment')}<span>${article.sample ? '' : compactCount.format(stats.count)}</span></button>
@@ -128,7 +128,7 @@ function renderTimeline() {
   const waiting = state.page === 'home' && state.loading;
   $('#timeline').setAttribute('aria-busy', String(state.loading));
   $('#timeline').innerHTML = articles.length ? articles.slice(0, state.visible).map(card).join('') : waiting ? '<div class="feed-loading" role="status"><span class="loader"></span><span>Loading posts…</span></div>' : `<div class="empty-state">${icon(state.page === 'likes' ? 'heart' : 'search')}<h2>${state.page === 'likes' ? 'Give your curiosity a heart.' : 'Nothing here yet.'}</h2><p>${state.page === 'likes' ? 'Like an article to find more posts with related categories.' : 'Try another search or load more articles.'}</p></div>`;
-  renderMore(articles); hydrate(articles.slice(0, state.visible));
+  renderMore(articles); hydrate(articles.slice(0, state.visible)); hydrateParagraphs(articles.slice(0, state.visible));
 }
 function renderMore(articles = viewArticles()) {
   if (!$('#load-area')) return;
@@ -183,32 +183,32 @@ function updateParagraph(article) {
     if (button) {
       button.textContent = open ? 'Read less' : 'Read more';
       button.setAttribute('aria-expanded', String(open));
-      button.setAttribute('aria-busy', String(expanding.has(article.id)));
+
     }
   }
 }
-async function toggleParagraph(article) {
-  if (expanded.has(article.id)) { expanded.delete(article.id); updateParagraph(article); return; }
-  expanded.add(article.id); updateParagraph(article);
-  if (article.firstParagraph || article.sample || expanding.has(article.id)) return;
-  const originalId = article.id;
-  expanding.add(originalId); updateParagraph(article);
-  let current = article;
-  try {
+function toggleParagraph(article) {
+  if (!article.firstParagraph && !article.sample) return;
+  if (expanded.has(article.id)) expanded.delete(article.id);
+  else expanded.add(article.id);
+  updateParagraph(article);
+}
+async function hydrateParagraphs(articles) {
+  const missing = articles.filter(a => !a.sample && !a.firstParagraph && !paragraphAttempts.has(a.id));
+  if (!missing.length) return;
+  missing.forEach(a => paragraphAttempts.add(a.id));
+  await Promise.allSettled(missing.map(async article => {
     const paragraph = await fetchFirstParagraph(article);
-    current = collection().find(a => a.id === originalId || a.sourceIds?.includes(originalId)) || article;
+    const current = collection().find(a => a.id === article.id || a.sourceIds?.includes(article.id)) || article;
     current.firstParagraph = paragraph;
+    paragraphAttempts.add(current.id);
     if (state.profile.likes[current.id]) {
       state.profile.likes[current.id].firstParagraph = paragraph;
       writeStorage('profile-v1', state.profile);
     }
-    cache();
-  } catch { toast('Couldn’t load the full paragraph. Showing cached text.'); }
-  finally {
-    current = collection().find(a => a.id === originalId || a.sourceIds?.includes(originalId)) || current;
-    expanding.delete(originalId); expanding.delete(current.id);
-    updateParagraph(current);
-  }
+  }));
+  cache();
+  if (['home', 'likes', 'explore'].includes(state.page)) renderTimeline();
 }
 function mentionMarkup(m) {
   return `<div class="mention"><div class="mention-meta"><span class="hn-mini">Y</span><strong>${esc(m.author)}</strong></div><p class="muted">${m.kind === 'comment' ? 'Linked in a comment' : 'Submitted as a story'}</p>${m.storyId ? `<a class="story-title" href="https://news.ycombinator.com/item?id=${encodeURIComponent(m.storyId)}" ${external}>${esc(m.storyTitle)}</a>` : '<p class="muted">Parent thread has not been resolved yet.</p>'}${m.text ? `<blockquote>${esc(m.text)}</blockquote>` : ''}<a class="mention-link" href="https://news.ycombinator.com/item?id=${encodeURIComponent(m.id)}" ${external}>Read original ${m.kind === 'comment' ? 'comment' : 'discussion'} ${icon('external')}</a></div>`;
@@ -249,7 +249,6 @@ async function hydrate(articles) {
     feeds.canonicalize(enriched);
     for (const article of enriched) for (const id of article.sourceIds || []) {
       if (expanded.delete(id)) expanded.add(article.id);
-      if (expanding.delete(id)) expanding.add(article.id);
     }
     for (const article of enriched) state.order = [...new Set(state.order.map(id => article.sourceIds.includes(id) ? article.id : id))];
     const nextProfile = canonicalizeProfile(state.profile, enriched);

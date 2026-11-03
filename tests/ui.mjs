@@ -31,7 +31,7 @@ with db:
   url='https://en.wikipedia.org/wiki/'+title.replace(' ','_')
   ingest(db,[{'id':i*2+1,'type':'story','title':title,'by':'fixture-user'+str(i),'time':now-1000,'url':url}])
   a=wiki_url(url)
-  merge_metadata(db,a['id'],{**a,'extract':(topic+' is an interesting field of scientific discovery. ')*14,'description':topic,'categories':[topic],'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
+  merge_metadata(db,a['id'],{**a,'extract':(topic+' is an interesting field of scientific discovery. ')*14,'description':topic,**({'firstParagraph':'Short first paragraph.'} if i==0 else {}),'categories':[topic],'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
  resolve_threads(db);refresh_stats(db)
 export_static(db,sys.argv[2]+'/data/catalog')
 db.close()
@@ -73,10 +73,11 @@ db.close()
   const page = await context.newPage();
   await page.goto('https://wikihack.test/WikiHack-mobile/');
   await page.locator('.mention-label').first().waitFor();
+  await page.locator('.article-card .read-more').first().waitFor();
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 0, 0)');
-  const first = page.locator('.article-card').first();
+  const first = page.locator('.article-card').filter({ has: page.locator('.read-more') }).first();
   const firstId = await first.getAttribute('data-id');
   const settings = page.locator('.topbar').getByRole('button', { name: 'Settings', exact: true });
   assert.equal(await settings.locator('svg').count(), 1);
@@ -112,9 +113,12 @@ db.close()
   assert.equal(await page.locator('a[href^="intent:"],a[href^="wikihack:"]').count(), 0);
   assert.equal(await first.evaluate(el => Boolean(el.querySelector('.read-more').compareDocumentPosition(el.querySelector('.article-media')) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
   const title = await first.locator('.article-title h2').textContent();
+  const requestsBeforeExpand = paragraphRequests.length;
+  const previewBeforeExpand = await first.locator('.article-extract').textContent();
   await first.getByRole('button', { name: 'Read more', exact: true }).click();
   const readLess = first.getByRole('button', { name: 'Read less', exact: true });
-  await page.waitForFunction(() => document.querySelector('.article-card .read-more').getAttribute('aria-busy') === 'false');
+  assert.equal(paragraphRequests.length, requestsBeforeExpand, 'Expansion is synchronous and does not fetch or replace text');
+  assert.ok(fullParagraph(title).startsWith(previewBeforeExpand.slice(0, -1)));
   assert.equal(await readLess.getAttribute('aria-expanded'), 'true');
   assert.equal(await first.locator('.article-extract').textContent(), fullParagraph(title));
   assert.ok((await first.locator('.article-extract').textContent()).length > 281);
@@ -124,7 +128,7 @@ db.close()
   await readLess.click();
   assert.ok((await first.locator('.article-extract').textContent()).length <= 281);
   await first.getByRole('button', { name: 'Read more', exact: true }).click();
-  assert.equal(paragraphRequests.length, 1, 'A cached paragraph does not refetch');
+  assert.equal(paragraphRequests.length, requestsBeforeExpand, 'A cached paragraph does not refetch');
   for (const target of [first.locator('.post-avatar'), first.locator('.article-extract'), first.locator('.article-media')]) {
     const opened = page.waitForEvent('popup');
     await target.click();
@@ -150,7 +154,7 @@ db.close()
   assert.equal(await page.locator('.article-card').count(), 1, 'Hearts persist after reload');
   await first.getByRole('button', { name: 'Read more', exact: true }).click();
   assert.equal(await first.locator('.article-extract').textContent(), fullParagraph(title), 'Cached paragraphs work after reload');
-  assert.equal(paragraphRequests.length, 1);
+  assert.equal(paragraphRequests.filter(raw => new URL(raw).searchParams.get('titles') === title).length, 1);
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   const dismiss = page.locator('.article-card').nth(1);
   const dismissId = await dismiss.getAttribute('data-id');
@@ -201,6 +205,9 @@ db.close()
   await page.getByRole('searchbox', { name: 'Search articles' }).fill('Programming');
   await page.locator('.article-card').first().waitFor();
   for (const title of await page.locator('.article-title h2').allTextContents()) assert.ok(title.includes('Programming'));
+  const shortPost = page.locator('.article-card').filter({ has: page.getByRole('heading', { name: 'Programming language 0', exact: true }) });
+  assert.equal(await shortPost.locator('.article-extract').textContent(), 'Short first paragraph.');
+  assert.equal(await shortPost.locator('.read-more').count(), 0, 'Short paragraphs have no expansion control');
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   await page.getByRole('tab', { name: 'Top', exact: true }).click();
   await page.getByRole('tab', { name: 'Top', exact: true }).press('ArrowLeft');
