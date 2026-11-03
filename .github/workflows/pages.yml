@@ -1,0 +1,60 @@
+name: Publish static WikiHack
+
+on:
+  workflow_dispatch:
+    inputs:
+      catalogue_release:
+        description: Release tag containing catalogue.tar.gz
+        required: true
+        default: static-data
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download prepared catalogue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATA_RELEASE: ${{ inputs.catalogue_release }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release download "$DATA_RELEASE" --pattern catalogue.tar.gz --dir "$RUNNER_TEMP/wikihack-data"
+      - name: Extract static files
+        env:
+          ARCHIVE: ${{ runner.temp }}/wikihack-data/catalogue.tar.gz
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, tarfile
+          output = pathlib.Path('web/data/catalog')
+          output.mkdir(parents=True, exist_ok=True)
+          with tarfile.open(os.environ['ARCHIVE'], 'r:gz') as source:
+              for member in source.getmembers():
+                  path = pathlib.PurePosixPath(member.name)
+                  if path.is_absolute() or '..' in path.parts or not (member.isfile() or member.isdir()):
+                      raise ValueError('Unexpected path in static catalogue')
+              source.extractall(output, filter='data')
+          PY
+      - name: Assemble static website
+        run: node scripts/build-static.mjs --reuse-data
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

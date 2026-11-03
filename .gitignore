@@ -1,0 +1,14 @@
+node_modules/
+**/build/
+*.jks
+*.keystore
+test-results/
+.index-cache/
+.data/
+.venv/
+__pycache__/
+*.pyc
+web/data/catalog/
+web/data/.catalog-build-*/
+dist/
+*.tar.gz

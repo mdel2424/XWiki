@@ -1,0 +1,3 @@
+duckdb>=1.4,<2
+# DuckDB's Python converter requires this for TIMESTAMP WITH TIME ZONE values.
+pytz>=2024.1

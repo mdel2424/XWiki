@@ -1,0 +1,28 @@
+const paths = {
+  heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  dislike: '<circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/>',
+  undo: '<path d="M4 10h10a6 6 0 0 1 0 12M4 10l5-5m-5 5 5 5"/>',
+  home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',
+  search: '<circle cx="10.7" cy="10.7" r="7.2"/><path d="m16 16 5 5"/>',
+  bookmark: '<path d="M6 3h12v18l-6-4-6 4z"/>',
+  settings: '<path d="m9 3-.7 2.5-2 .9L4 5.8 2 9.2 4 11v2l-2 1.8 2 3.4 2.3-.6 2 .9L9 21h6l.7-2.5 2-.9 2.3.6 2-3.4-2-1.8v-2l2-1.8-2-3.4-2.3.6-2-.9L15 3z"/><circle cx="12" cy="12" r="3"/>',
+  comment: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-1 1v-9.5A8.5 8.5 0 0 1 11.5 3h1A8.5 8.5 0 0 1 21 11.5Z"/>',
+  share: '<path d="M12 16V3m-5 5 5-5 5 5M5 13v7h14v-7"/>',
+  arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
+  external: '<path d="M14 3h7v7m0-7L10 14M10 3H4v17h17v-6"/>',
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
+  refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 6a8 8 0 0 1 13 1l1 5M4 12l1 5a8 8 0 0 0 13 1"/>',
+  shuffle: '<path d="M3 5h3c5 0 7 14 12 14h3m-4-4 4 4-4 4M3 19h3c2.5 0 4-3.5 6-7s3.5-7 6-7h3m-4-4 4 4-4 4"/>',
+  trend: '<path d="m3 17 6-6 4 4L21 5m-6 0h6v6"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 1v2m0 18v2M1 12h2m18 0h2M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2"/>',
+  moon: '<path d="M21 13A9 9 0 0 1 11 3a9 9 0 1 0 10 10Z"/>',
+  chevron: '<path d="m9 5 7 7-7 7"/>',
+  book: '<path d="M12 5C8 2 4 3 2 4v15c3-2 7-1 10 1 3-2 7-3 10-1V4c-2-1-6-2-10 1Zm0 0v15"/>',
+  back: '<path d="m12 5-7 7 7 7M5 12h15"/>',
+};
+export function icon(name, cls = '') {
+  return `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.info}</svg>`;
+}
