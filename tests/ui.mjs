@@ -70,6 +70,70 @@ db.close()
       await route.fulfill({ json: { query: { pages: [{ title, extract: `<p>${fullParagraph(title)}</p><p>SECOND PARAGRAPH STAYS ON WIKIPEDIA.</p>` }] } } });
     } else await route.fulfill({ contentType: 'text/html', body: '<title>Wikipedia article</title><p>Wikipedia</p>' });
   });
+  // Hold each startup stage so preview/cached posts cannot hide a startup flash.
+  for (const warm of [false, true]) {
+    for (const failure of [null, 'manifest', 'feed']) {
+      const startup = await context.newPage();
+      const cachedArticle = { id: 'en:Cached topic', title: 'Cached topic', lang: 'en',
+        extract: 'A previously cached post.', mentions: [], sample: true };
+      await startup.addInitScript(({ warm, article }) => {
+        localStorage.clear();
+        if (warm) {
+          localStorage.setItem('wikihack:feed', JSON.stringify({ articles: [article] }));
+          localStorage.setItem('wikihack:profile-v1', JSON.stringify({ version: 1,
+            likes: { [article.id]: article }, rejected: {}, seen: {} }));
+        }
+      }, { warm, article: cachedArticle });
+      const manifest = Promise.withResolvers(), feed = Promise.withResolvers();
+      const manifestRequested = Promise.withResolvers(), feedRequested = Promise.withResolvers();
+      await startup.route('**/data/catalog/manifest.json', async route => {
+        manifestRequested.resolve();
+        await manifest.promise;
+        if (failure === 'manifest') await route.abort();
+        else await route.fallback();
+      });
+      await startup.route('**/data/catalog/*/articles/*.json', async route => {
+        feedRequested.resolve();
+        await feed.promise;
+        if (failure === 'feed') await route.abort();
+        else await route.fallback();
+      });
+      try {
+        await startup.goto('https://wikihack.test/WikiHack-mobile/');
+        await Promise.race([manifestRequested.promise, new Promise((_, reject) => setTimeout(() => reject(new Error('Startup manifest request timed out')), 10000))]);
+        const checkLoading = async () => {
+          await startup.locator('.feed-loading').waitFor();
+          assert.equal(await startup.locator('#timeline').getAttribute('aria-busy'), 'true');
+          assert.equal(await startup.locator('.article-card').count(), 0, 'No generic/cached posts during startup');
+          assert.match(await startup.locator('.source-note').textContent(), /Loading your feed/);
+          assert.equal(await startup.locator('.end-note').count(), 0);
+        };
+        await checkLoading();
+        manifest.resolve();
+        if (failure !== 'manifest') {
+          await Promise.race([feedRequested.promise, new Promise((_, reject) => setTimeout(() => reject(new Error('Startup feed request timed out')), 10000))]);
+          await checkLoading();
+          feed.resolve();
+        }
+        await startup.waitForFunction(() => document.querySelector('#timeline')?.getAttribute('aria-busy') === 'false');
+        await startup.locator('.article-card').first().waitFor();
+        if (failure) {
+          if (warm) assert.equal(await startup.locator('.article-title h2').first().textContent(), cachedArticle.title);
+          else assert.ok(await startup.locator('.preview-tag').count() > 0, 'Offline preview remains available');
+        } else {
+          assert.equal(await startup.locator('.preview-tag').count(), 0);
+          assert.equal(await startup.locator(`[data-id="${cachedArticle.id}"]`).count(), 0);
+          assert.match(await startup.locator('.source-note').textContent(), /Personalized for you/);
+        }
+      } finally {
+        manifest.resolve(); feed.resolve();
+        await startup.evaluate(() => localStorage.clear());
+        await startup.close();
+      }
+    }
+  }
+  paragraphRequests.length = 0;
+  console.log(`PASS (${engine}): startup waits for the personalized feed on fresh and cached sessions; manifest/feed failures retain offline fallbacks.`);
   const page = await context.newPage();
   await page.goto('https://wikihack.test/WikiHack-mobile/');
   await page.locator('.mention-label').first().waitFor();

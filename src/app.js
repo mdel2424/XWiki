@@ -22,7 +22,7 @@ const state = {
   articles: cached.articles || [], profile,
   settings: readStorage('settings', { images: true }), page: 'home', mode: 'for-you',
   visible: 12, order: [], query: '', backend: null, archive: null, searchIds: null, searchCursor: null,
-  loading: false, offline: false, ready: false, paused: false, seed: Math.floor(Math.random() * 1e9),
+  loading: true, offline: false, ready: false, paused: false, seed: Math.floor(Math.random() * 1e9),
 };
 let observer, toastTimer, returnFocus, searchTimer, undoAction, homeScroll = 0, homeVisible = 12, generation = 0;
 let refreshingFeed = false;
@@ -47,7 +47,7 @@ function toast(message, undo = null) {
 }
 function cache() { writeStorage('feed', { articles: state.articles.slice(0, 600) }); }
 function ranked(articles = collection(), offset = 0) {
-  const tabIds = state.backend === 'static' ? new Set(feeds.tab().ids || []) : null;
+  const tabIds = state.backend === 'static' && (!state.offline || feeds.tab().ids !== null) ? new Set(feeds.tab().ids || []) : null;
   const eligible = articles.filter(a => !isHidden(a) && (!tabIds || tabIds.has(a.id)));
   if (state.mode === 'for-you') return recommend(eligible, state.profile, { seed: state.seed, sources: feeds.tab().sources, offset });
   // Published rank files are authoritative; keep their complete-archive order.
@@ -65,6 +65,8 @@ function resetOrder(preserve = []) {
   for (const article of collection()) if (reasons.has(article.id)) article.recommendation = reasons.get(article.id);
 }
 function viewArticles() {
+  // The cached collection is a fallback, not the initial personalized feed.
+  if (state.page === 'home' && !state.ready) return [];
   if (state.page === 'likes') return Object.values(state.profile.likes).filter(a => !isHidden(a)).reverse();
   if (state.page === 'explore') {
     const ids = state.searchIds && new Set(state.searchIds);
@@ -88,7 +90,7 @@ function shell() {
   renderPage();
 }
 function sourceNote() {
-  const text = !state.articles.length ? (state.loading ? 'Connecting · preview collection' : 'Offline preview · no invented HN activity') :
+  const text = !state.ready ? 'Loading your feed…' : !state.articles.length ? (state.loading ? 'Connecting · preview collection' : 'Offline preview · no invented HN activity') :
     state.backend === 'static' ? `${state.archive?.articles?.toLocaleString() || 'Archive'} articles · ${state.mode === 'for-you' ? 'Personalized for you' : 'HN archive ranking'}` : 'Static catalogue not built';
   return `<button class="source-note" data-action="sources"><span class="status-dot ${state.loading ? 'pulse' : ''}"></span>${esc(text)}${icon('info')}</button>`;
 }
@@ -126,8 +128,8 @@ function card(article, index) {
 function renderTimeline() {
   if (!$('#timeline')) return;
   const articles = viewArticles();
-  const waiting = state.page === 'home' && state.loading;
-  $('#timeline').setAttribute('aria-busy', String(state.loading));
+  const waiting = state.page === 'home' && (state.loading || !state.ready);
+  $('#timeline').setAttribute('aria-busy', String(waiting || state.loading));
   $('#timeline').innerHTML = articles.length ? articles.slice(0, state.visible).map(card).join('') : waiting ? '<div class="feed-loading" role="status"><span class="loader"></span><span>Loading posts…</span></div>' : `<div class="empty-state">${icon(state.page === 'likes' ? 'heart' : 'search')}<h2>${state.page === 'likes' ? 'Give your curiosity a heart.' : 'Nothing here yet.'}</h2><p>${state.page === 'likes' ? 'Like an article to find more posts with related categories.' : 'Try another search or load more articles.'}</p></div>`;
   renderMore(articles); hydrate(articles.slice(0, state.visible)); hydrateParagraphs(articles.slice(0, state.visible));
 }
@@ -279,7 +281,11 @@ async function load({ refresh = false, preserve = null } = {}) {
     else resetOrder(state.order);
     cache();
   } catch {
-    if (requestedMode === state.mode) { state.offline = true; toast('Couldn’t refresh. Your cached collection is available.'); }
+    if (requestedMode === state.mode) {
+      state.offline = true;
+      if (!state.ready) resetOrder();
+      toast('Couldn’t refresh. Your cached collection is available.');
+    }
   }
   finally {
     state.loading = state.backend === 'static' ? feeds.tab().loading : false; state.ready = true;
@@ -419,13 +425,14 @@ async function searchCatalogue(query, cursor = 0) {
   } catch { toast('Couldn’t load static search files. Showing cached matches.'); }
 }
 async function boot() {
-  document.documentElement.dataset.theme = 'dark'; resetOrder(); shell();
+  document.documentElement.dataset.theme = 'dark'; shell();
   try {
     const manifest = await catalog.open();
     state.archive = manifest.coverage; state.backend = 'static';
     await load({ refresh: true });
   } catch {
-    state.ready = true; state.paused = true; state.offline = true;
+    state.ready = true; state.loading = false; state.paused = true; state.offline = true;
+    resetOrder();
     renderPage();
   }
 }
