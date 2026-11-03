@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { recommend, emptyProfile, feedback, canonicalizeProfile, hidden } from '../src/recommendations.js';
-import { excerpt, wikipediaLink } from '../src/reading.js';
+import { excerpt, firstParagraph, wikipediaLink } from '../src/reading.js';
 
 const article = (id, title, category, people = 10) => ({ id, title, lang: 'en',
   url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(' ', '_'))}`,
@@ -98,6 +98,14 @@ test('post text ends at a word boundary with an ellipsis and stays bounded', () 
   assert.ok(preview.endsWith('…'));
   assert.equal(excerpt('A short summary.'), 'A short summary.');
   assert.equal(excerpt('x'.repeat(300)).length, 281);
+});
+test('expanded previews contain only the first complete paragraph', () => {
+  const paragraph = 'First paragraph sentence. '.repeat(18).trim();
+  assert.equal(firstParagraph(`  ${paragraph}\n\nSecond paragraph should stay on Wikipedia.`), paragraph);
+  assert.equal(firstParagraph('First line.\nWrapped line.\r\n\r\nSecond paragraph.'), 'First line. Wrapped line.');
+  assert.equal(firstParagraph('First paragraph.\u2029Second paragraph.'), 'First paragraph.');
+  assert.equal(firstParagraph(''), '');
+  assert.ok(firstParagraph(paragraph).length > excerpt(paragraph).length);
 });
 test('reading always uses a normal HTTPS Wikipedia article link', () => {
   assert.equal(wikipediaLink(python), 'https://en.wikipedia.org/wiki/Python_programming');

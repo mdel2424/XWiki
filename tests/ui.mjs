@@ -42,6 +42,8 @@ db.close()
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
   const errors = [];
   const requests = [];
+  const paragraphRequests = [];
+  const fullParagraph = title => `${title} begins with a complete first paragraph. ` + 'This sentence explains the topic in more detail for readers. '.repeat(10).trim();
   context.on('page', page => page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.message); }));
   await context.route('https://wikihack.test/**', async route => {
     const url = new URL(route.request().url());
@@ -58,6 +60,16 @@ db.close()
     await route.fulfill(result);
   });
   await context.route('https://upload.wikimedia.org/**', route => readFile('images/orbit.svg').then(body => route.fulfill({ body, contentType: 'image/svg+xml' })));
+  await context.route('https://en.wikipedia.org/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/w/api.php') {
+      paragraphRequests.push(url.href);
+      assert.equal(url.searchParams.get('exsentences'), null, 'Expansion fetches the whole paragraph');
+      assert.equal(url.searchParams.get('explaintext'), null, 'HTML keeps paragraph boundaries');
+      const title = url.searchParams.get('titles');
+      await route.fulfill({ json: { query: { pages: [{ title, extract: `<p>${fullParagraph(title)}</p><p>SECOND PARAGRAPH STAYS ON WIKIPEDIA.</p>` }] } } });
+    } else await route.fulfill({ contentType: 'text/html', body: '<title>Wikipedia article</title><p>Wikipedia</p>' });
+  });
   const page = await context.newPage();
   await page.goto('https://wikihack.test/WikiHack-mobile/');
   await page.locator('.mention-label').first().waitFor();
@@ -74,6 +86,14 @@ db.close()
   }));
   assert.ok(actions[2].right - actions[0].left < 200, 'Post actions form a compact group');
   assert.ok(actions[1].left - actions[0].right <= 10);
+  const checkActionAlignment = async () => {
+    const icons = await first.locator('.post-actions > button svg').evaluateAll(elements => elements.map(el => {
+      const box = el.getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }));
+    assert.ok(Math.max(...icons.map(i => i.y)) - Math.min(...icons.map(i => i.y)) < .5, 'All three icons share a vertical center');
+    assert.ok(Math.abs((icons[1].x - icons[0].x) - (icons[2].x - icons[1].x)) < .5, 'All three icons have equal horizontal spacing');
+  };
+  await checkActionAlignment();
   await settings.click();
   await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Home', exact: true }).click();
@@ -84,19 +104,53 @@ db.close()
   assert.deepEqual(await first.locator('.post-actions > button').evaluateAll(buttons => buttons.map(b => b.dataset.action)), ['context', 'like', 'seen']);
   assert.ok((await first.locator('.article-extract').textContent()).length <= 281);
   assert.ok((await first.locator('.article-extract').textContent()).endsWith('…'));
-  const readLink = first.getByRole('link', { name: 'Read on Wikipedia', exact: true });
-  assert.match(await readLink.getAttribute('href'), /^https:\/\/en\.wikipedia\.org\/wiki\//);
+  const readLink = first.locator('.article-title');
+  const wikipediaUrl = await readLink.getAttribute('href');
+  assert.match(wikipediaUrl, /^https:\/\/en\.wikipedia\.org\/wiki\//);
   assert.equal(await readLink.getAttribute('target'), '_blank');
+  assert.equal(await first.getByRole('link', { name: 'Read on Wikipedia', exact: true }).count(), 0);
   assert.equal(await page.locator('a[href^="intent:"],a[href^="wikihack:"]').count(), 0);
-  assert.equal(await first.evaluate(el => Boolean(el.querySelector('.wiki-readmore').compareDocumentPosition(el.querySelector('.article-media')) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
+  assert.equal(await first.evaluate(el => Boolean(el.querySelector('.read-more').compareDocumentPosition(el.querySelector('.article-media')) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
+  const title = await first.locator('.article-title h2').textContent();
+  await first.getByRole('button', { name: 'Read more', exact: true }).click();
+  const readLess = first.getByRole('button', { name: 'Read less', exact: true });
+  await page.waitForFunction(() => document.querySelector('.article-card .read-more').getAttribute('aria-busy') === 'false');
+  assert.equal(await readLess.getAttribute('aria-expanded'), 'true');
+  assert.equal(await first.locator('.article-extract').textContent(), fullParagraph(title));
+  assert.ok((await first.locator('.article-extract').textContent()).length > 281);
+  assert.ok(!(await first.locator('.article-extract').textContent()).includes('SECOND PARAGRAPH'));
+  assert.equal(context.pages().length, 1, 'Read more expands without opening Wikipedia');
+  assert.equal(await page.locator('dialog').evaluate(d => d.open), false);
+  await readLess.click();
+  assert.ok((await first.locator('.article-extract').textContent()).length <= 281);
+  await first.getByRole('button', { name: 'Read more', exact: true }).click();
+  assert.equal(paragraphRequests.length, 1, 'A cached paragraph does not refetch');
+  for (const target of [first.locator('.post-avatar'), first.locator('.article-extract'), first.locator('.article-media')]) {
+    const opened = page.waitForEvent('popup');
+    await target.click();
+    const wikipedia = await opened;
+    await wikipedia.waitForURL(wikipediaUrl);
+    assert.equal(wikipedia.url(), wikipediaUrl);
+    await wikipedia.close();
+  }
+  const keyboardOpen = page.waitForEvent('popup');
+  await readLink.focus(); await readLink.press('Enter');
+  const keyboardWikipedia = await keyboardOpen;
+  await keyboardWikipedia.waitForURL(wikipediaUrl); await keyboardWikipedia.close();
   await first.getByRole('button', { name: 'Like article', exact: true }).click();
   await page.locator(`[data-id="${firstId}"]`).getByRole('button', { name: 'Unlike article', exact: true }).waitFor();
+  await checkActionAlignment();
+  assert.equal(context.pages().length, 1, 'Like does not open Wikipedia');
+  assert.equal(await first.locator('.article-extract').textContent(), fullParagraph(title), 'Expansion survives feedback renders');
   await page.getByRole('button', { name: 'Likes', exact: true }).click();
   assert.equal(await page.locator('.article-card').count(), 1);
   await page.reload();
   await page.locator('.mention-label').first().waitFor();
   await page.getByRole('button', { name: 'Likes', exact: true }).click();
   assert.equal(await page.locator('.article-card').count(), 1, 'Hearts persist after reload');
+  await first.getByRole('button', { name: 'Read more', exact: true }).click();
+  assert.equal(await first.locator('.article-extract').textContent(), fullParagraph(title), 'Cached paragraphs work after reload');
+  assert.equal(paragraphRequests.length, 1);
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   const dismiss = page.locator('.article-card').nth(1);
   const dismissId = await dismiss.getAttribute('data-id');
@@ -157,12 +211,13 @@ db.close()
     await page.setViewportSize({ width, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `No overflow at ${width}px`);
     assert.ok((await page.locator('.phone-shell').boundingBox()).width <= 600);
+    await checkActionAlignment();
   }
   assert.deepEqual(errors, []);
   assert.ok(requests.some(url => url.includes('/search/')));
   assert.ok(requests.some(url => url.includes('/context/')));
   assert.ok(!requests.some(url => url.includes('/api/')));
-  console.log(`PASS (${engine}): dark For you, truncation, image placement, HTTPS reading links, hearts, persistent feedback, dropdown dismissal/Undo, seen state, pull-to-refresh, tab isolation, static archive context/search at a project subpath, responsive layout.`);
+  console.log(`PASS (${engine}): dark For you, paragraph expansion/collapse and caching, whole-post Wikipedia links, aligned actions, image placement, hearts, persistent feedback, dropdown dismissal/Undo, seen state, pull-to-refresh, tab isolation, static archive context/search at a project subpath, responsive layout.`);
 } finally {
   await browser?.close();
   await rm(temporary, { recursive: true, force: true });

@@ -1,7 +1,8 @@
-// Diminishing returns and a cap keep very popular articles from taking over.
+// Strongly suppress the archive's large under-five-linker tail, while retaining
+// a small discovery chance. Above five, favor broad HN interest with a soft cap.
 export function discoveryWeight(linkers = 0) {
-  const count = Math.min(255, Math.max(0, Number(linkers) || 0));
-  return 1 + .5 * Math.log2(1 + count);
+  const count = Math.min(100, Math.max(0, Number(linkers) || 0));
+  return count < 5 ? .02 * Math.sqrt(Math.max(1, count)) : Math.pow(count / 5, .65);
 }
 
 export function randomValue(id, seed) {

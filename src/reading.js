@@ -1,5 +1,9 @@
 import { parseWikiUrl } from './core.js';
 
+export function firstParagraph(text = '') {
+  return String(text).replace(/\r\n?/g, '\n').trim().split(/\n\s*\n|\u2029/u)[0].replace(/\s+/g, ' ').trim();
+}
+
 export function excerpt(text = '', limit = 280) {
   const clean = String(text).replace(/\s+/g, ' ').trim();
   if (clean.length <= limit) return clean;

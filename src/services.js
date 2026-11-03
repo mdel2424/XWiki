@@ -1,4 +1,5 @@
-import { articlesFromHits, mergeArticles, wikiUrl } from './core.js';
+import { articlesFromHits, mergeArticles, wikiUrl, parseWikiUrl } from './core.js';
+import { firstParagraph } from './reading.js';
 
 export async function fetchJson(url, { timeout = 12000, fetcher = fetch, ...options } = {}) {
   const controller = new AbortController();
@@ -8,6 +9,20 @@ export async function fetchJson(url, { timeout = 12000, fetcher = fetch, ...opti
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     return await response.json();
   } finally { clearTimeout(timer); }
+}
+
+export async function fetchFirstParagraph(article, { request = fetchJson } = {}) {
+  const parsed = parseWikiUrl(article.url);
+  if (!parsed) throw new Error('Invalid Wikipedia article URL.');
+  // HTML preserves paragraph boundaries; omit the old five-sentence limit.
+  const params = new URLSearchParams({ action: 'query', format: 'json', formatversion: '2',
+    origin: '*', prop: 'extracts', exintro: '1', redirects: '1', titles: parsed.title });
+  const data = await request(`https://${parsed.lang}.wikipedia.org/w/api.php?${params}`);
+  const page = data.query?.pages?.find(page => !page.missing && !page.invalid);
+  const document = new DOMParser().parseFromString(page?.extract || '', 'text/html');
+  const paragraph = [...document.querySelectorAll('p')].map(p => firstParagraph(p.textContent)).find(Boolean);
+  if (!paragraph) throw new Error('Wikipedia paragraph is unavailable.');
+  return paragraph;
 }
 
 export function algoliaUrl({ start, end, page = 0, popular = false }) {

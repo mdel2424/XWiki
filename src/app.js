@@ -1,12 +1,12 @@
 import { mergeArticles, applyEnrichment, uniqueAuthors, searchArticles, safeHttps, rankArticles } from './core.js';
-import { enrichArticles, readStorage, writeStorage } from './services.js';
+import { enrichArticles, readStorage, writeStorage, fetchFirstParagraph } from './services.js';
 import { recommend, emptyProfile, feedback, hidden, canonicalizeProfile } from './recommendations.js';
 import { FeedSession } from './feed-session.js';
 import { StaticCatalog } from './static-catalog.js';
 import { attachPullRefresh } from './pull-refresh.js';
 import { SAMPLE_ARTICLES } from './samples.js';
 import { icon } from './icons.js';
-import { excerpt, wikipediaLink } from './reading.js';
+import { excerpt, firstParagraph, wikipediaLink } from './reading.js';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -27,6 +27,9 @@ const state = {
 let observer, toastTimer, returnFocus, searchTimer, undoAction, homeScroll = 0, homeVisible = 12, generation = 0;
 let refreshingFeed = false;
 const hydrating = new Set();
+const expanded = new Set(), expanding = new Set();
+const compactCount = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+const paragraphText = article => firstParagraph(article.firstParagraph || article.extract || article.description || 'An article linked in a Hacker News discussion.');
 const collection = () => state.articles.length ? state.articles : SAMPLE_ARTICLES;
 const liked = article => Boolean(state.profile.likes[article.id]);
 const isHidden = article => hidden(article, state.profile);
@@ -99,6 +102,8 @@ function renderPage() {
 }
 function card(article, index) {
   const stats = metrics(article), media = safeHttps(article.thumbnail);
+  const paragraph = paragraphText(article), open = expanded.has(article.id);
+  const canExpand = paragraph !== excerpt(paragraph) || !article.firstParagraph && !article.sample;
   return `<article class="article-card" data-id="${esc(article.id)}">
     <div class="post-avatar" aria-hidden="true">W</div><div class="post-body">
       <div class="post-byline"><strong>Wikipedia</strong><span class="verified" aria-label="Wikipedia source">${icon('check')}</span><span class="handle">@${esc(article.lang)}wiki</span>
@@ -106,13 +111,13 @@ function card(article, index) {
           <div class="post-menu" id="post-menu-${index}" role="menu" hidden><button role="menuitem" data-action="not-interested">${icon('dislike')}Not interested in this post</button><button role="menuitem" data-action="why">${icon('info')}Why this post?</button><button role="menuitem" data-action="context">${icon('comment')}View HN sources</button></div></div>
       </div>
       ${article.sample ? '<div class="preview-tag">Preview collection</div>' : `<button class="mention-label" data-action="context"><span class="hn-mini">Y</span> Linked by ${stats.people.toLocaleString()} ${stats.people === 1 ? 'person' : 'people'} on HN</button>`}
-      <button class="article-title" data-action="read"><h2>${esc(article.title)}</h2></button>
-      <p class="article-extract">${esc(excerpt(article.extract || article.description || 'An article linked in a Hacker News discussion.'))}</p>
-      <a class="wiki-readmore" href="${esc(wikiHref(article))}" ${wikiTarget}>Read on Wikipedia</a>
-      ${state.settings.images !== false && (media || article.illustration) ? `<button class="article-media ${!media ? 'illustration-media' : ''}" data-action="read" aria-label="Read ${esc(article.title)}"><img src="${esc(media || `images/${article.illustration}.svg`)}" alt="${media ? esc(article.title) + ' — Wikipedia lead image' : 'WikiHack illustration'}" loading="lazy" referrerpolicy="no-referrer"><span class="media-caption">${media ? 'wikipedia.org' : 'WikiHack illustration'}</span></button>` : ''}
+      <a class="article-title" href="${esc(wikiHref(article))}" ${wikiTarget}><h2>${esc(article.title)}</h2></a>
+      <p class="article-extract" id="post-text-${index}">${esc(open ? paragraph : excerpt(paragraph))}</p>
+      ${canExpand || open ? `<button class="read-more" data-action="expand" aria-expanded="${open}" aria-controls="post-text-${index}" aria-busy="${expanding.has(article.id)}">${open ? 'Read less' : 'Read more'}</button>` : ''}
+      ${state.settings.images !== false && (media || article.illustration) ? `<a class="article-media ${!media ? 'illustration-media' : ''}" href="${esc(wikiHref(article))}" ${wikiTarget} aria-label="Open ${esc(article.title)} on Wikipedia"><img src="${esc(media || `images/${article.illustration}.svg`)}" alt="${media ? esc(article.title) + ' — Wikipedia lead image' : 'WikiHack illustration'}" loading="lazy" referrerpolicy="no-referrer"><span class="media-caption">${media ? 'wikipedia.org' : 'WikiHack illustration'}</span></a>` : ''}
       <div class="post-actions">
-        <button data-action="context" aria-label="View Hacker News mentions">${icon('comment')}<span>${article.sample ? '' : stats.count.toLocaleString()}</span></button>
-        <button class="heart-button ${liked(article) ? 'liked' : ''}" data-action="like" aria-label="${liked(article) ? 'Unlike article' : 'Like article'}" aria-pressed="${liked(article)}">${icon('heart')}<span>${liked(article) ? 'Liked' : ''}</span></button>
+        <button data-action="context" aria-label="View Hacker News mentions" title="${stats.count.toLocaleString()} HN mentions">${icon('comment')}<span>${article.sample ? '' : compactCount.format(stats.count)}</span></button>
+        <button class="heart-button ${liked(article) ? 'liked' : ''}" data-action="like" aria-label="${liked(article) ? 'Unlike article' : 'Like article'}" aria-pressed="${liked(article)}">${icon('heart')}</button>
         <button class="seen-button" data-action="seen" aria-label="Mark as seen" title="I've seen this post. Don't show it again.">${icon('close')}</button>
       </div>
     </div></article>`;
@@ -170,8 +175,40 @@ function showSheet(title, body, id = '') {
   if (!dialog.open) dialog.showModal();
 }
 function closeSheet() { $('#sheet').close(); }
-function reader(article) {
-  showSheet(article.title, `<div class="reader"><p class="muted">Wikipedia · ${esc(article.lang.toUpperCase())}</p><h3>${esc(article.title)}</h3><p>${esc(article.extract || article.description || 'Open Wikipedia to read the full article.')}</p><a class="primary-button" href="${esc(wikiHref(article))}" ${wikiTarget}>Read on Wikipedia ${icon('external')}</a><button class="secondary-button" data-action="context">View the HN conversation</button><p class="attribution">${article.sample ? 'Original preview description and illustration.' : 'Wikipedia text is CC BY-SA. See the article history and image pages for attribution and licences.'}</p></div>`, article.id);
+function updateParagraph(article) {
+  for (const post of document.querySelectorAll('.article-card')) {
+    if (post.dataset.id !== article.id) continue;
+    const open = expanded.has(article.id), button = post.querySelector('[data-action="expand"]');
+    post.querySelector('.article-extract').textContent = open ? paragraphText(article) : excerpt(paragraphText(article));
+    if (button) {
+      button.textContent = open ? 'Read less' : 'Read more';
+      button.setAttribute('aria-expanded', String(open));
+      button.setAttribute('aria-busy', String(expanding.has(article.id)));
+    }
+  }
+}
+async function toggleParagraph(article) {
+  if (expanded.has(article.id)) { expanded.delete(article.id); updateParagraph(article); return; }
+  expanded.add(article.id); updateParagraph(article);
+  if (article.firstParagraph || article.sample || expanding.has(article.id)) return;
+  const originalId = article.id;
+  expanding.add(originalId); updateParagraph(article);
+  let current = article;
+  try {
+    const paragraph = await fetchFirstParagraph(article);
+    current = collection().find(a => a.id === originalId || a.sourceIds?.includes(originalId)) || article;
+    current.firstParagraph = paragraph;
+    if (state.profile.likes[current.id]) {
+      state.profile.likes[current.id].firstParagraph = paragraph;
+      writeStorage('profile-v1', state.profile);
+    }
+    cache();
+  } catch { toast('Couldn’t load the full paragraph. Showing cached text.'); }
+  finally {
+    current = collection().find(a => a.id === originalId || a.sourceIds?.includes(originalId)) || current;
+    expanding.delete(originalId); expanding.delete(current.id);
+    updateParagraph(current);
+  }
 }
 function mentionMarkup(m) {
   return `<div class="mention"><div class="mention-meta"><span class="hn-mini">Y</span><strong>${esc(m.author)}</strong></div><p class="muted">${m.kind === 'comment' ? 'Linked in a comment' : 'Submitted as a story'}</p>${m.storyId ? `<a class="story-title" href="https://news.ycombinator.com/item?id=${encodeURIComponent(m.storyId)}" ${external}>${esc(m.storyTitle)}</a>` : '<p class="muted">Parent thread has not been resolved yet.</p>'}${m.text ? `<blockquote>${esc(m.text)}</blockquote>` : ''}<a class="mention-link" href="https://news.ycombinator.com/item?id=${encodeURIComponent(m.id)}" ${external}>Read original ${m.kind === 'comment' ? 'comment' : 'discussion'} ${icon('external')}</a></div>`;
@@ -192,7 +229,7 @@ async function context(article, cursor = 0) {
 }
 function sources() {
   const data = state.archive;
-  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your For you feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. For you mixes 80% weighted random discoveries, 10% Rising and 10% Top. Articles linked by more distinct people have a moderate advantage in the discovery draw, while less-linked articles stay eligible. Top and Rising picks in For you are shuffled from each ranking’s leading 1,000 articles. Hearts influence discovery order. Top counts distinct HN linkers across all time; Rising ranks distinct linkers during the six calendar months before the ranking was built.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
+  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your For you feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. For you mixes 80% weighted random discoveries, 10% Rising and 10% Top. Articles linked by fewer than five people appear rarely. The discovery draw favors broader HN interest, especially articles linked by ten or more people, while keeping some room for rare discoveries. Top and Rising picks in For you are shuffled from each ranking’s leading 1,000 articles. Hearts influence discovery order. Top counts distinct HN linkers across all time; Rising ranks distinct linkers during the six calendar months before the ranking was built.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
 }
 function navigate(page) {
   if (state.page === 'home') { homeScroll = scrollY; homeVisible = state.visible; }
@@ -210,6 +247,10 @@ async function hydrate(articles) {
     const enriched = await enrichArticles(missing);
     state.articles = applyEnrichment(state.articles, enriched);
     feeds.canonicalize(enriched);
+    for (const article of enriched) for (const id of article.sourceIds || []) {
+      if (expanded.delete(id)) expanded.add(article.id);
+      if (expanding.delete(id)) expanding.add(article.id);
+    }
     for (const article of enriched) state.order = [...new Set(state.order.map(id => article.sourceIds.includes(id) ? article.id : id))];
     const nextProfile = canonicalizeProfile(state.profile, enriched);
     if (JSON.stringify(nextProfile) !== JSON.stringify(state.profile)) persistProfile(nextProfile);
@@ -269,7 +310,15 @@ function closeMenus() {
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-action], [data-nav], [data-mode]');
   if (!event.target.closest('.menu-wrap')) closeMenus();
-  if (!button || button.disabled) return;
+  if (!button) {
+    const post = event.target.closest('.article-card');
+    if (post && !event.defaultPrevented && event.button === 0 &&
+        !event.target.closest('a, button, input, textarea, select, [role="button"]') && !window.getSelection()?.toString().trim()) {
+      post.querySelector('.article-title').click();
+    }
+    return;
+  }
+  if (button.disabled) return;
   if (button.dataset.nav) { navigate(button.dataset.nav); return; }
   if (button.dataset.mode) {
     if (!feeds.select(button.dataset.mode)) return;
@@ -287,7 +336,7 @@ document.addEventListener('click', async event => {
   closeMenus();
   if (action === 'close') closeSheet();
   else if (action === 'sources') sources();
-  else if (action === 'read' && article) reader(article);
+  else if (action === 'expand' && article) await toggleParagraph(article);
   else if (action === 'context' && article) await context(article);
   else if (action === 'more-context' && article) await context(article, Number(button.dataset.cursor));
   else if (action === 'why' && article) showSheet('Why this post?', `<h3>${esc(article.title)}</h3><p>${esc(state.mode === 'for-you' ? article.recommendation?.reason || 'Discovered in Hacker News discussions.' : 'This feed is ranked by HN mentions, not your likes.')}</p><p class="muted">Hearts boost similar topics in For you. “Not interested” hides a post and downranks similar topics. You can reset this in Settings.</p>`, article.id);
