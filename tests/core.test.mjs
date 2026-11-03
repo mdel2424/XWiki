@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseWikiUrl, extractArticles, articlesFromHits, mergeArticles, applyEnrichment, uniqueAuthors,
-  rankArticles, searchArticles, plainText, YEAR } from '../web/src/core.js';
-import { AlgoliaScanner, enrichArticles, fetchJson } from '../web/src/services.js';
+  rankArticles, searchArticles, plainText, YEAR } from '../src/core.js';
+import { AlgoliaScanner, enrichArticles, fetchJson } from '../src/services.js';
 
 const hit = (id, author, url, createdAt = 1000) => ({ objectID: String(id), author, url, created_at_i: createdAt, _tags: ['story'], title: 'A discussion' });
 test('canonicalizes desktop/mobile, fragments, language and Unicode without losing parentheses', () => {

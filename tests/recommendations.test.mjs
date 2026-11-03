@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { recommend, emptyProfile, feedback, canonicalizeProfile, hidden } from '../web/src/recommendations.js';
-import { excerpt, wikipediaLink } from '../web/src/reading.js';
+import { recommend, emptyProfile, feedback, canonicalizeProfile, hidden } from '../src/recommendations.js';
+import { excerpt, wikipediaLink } from '../src/reading.js';
 
 const article = (id, title, category, people = 10) => ({ id, title, lang: 'en',
   url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(' ', '_'))}`,

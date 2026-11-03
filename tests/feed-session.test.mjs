@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FeedSession } from '../web/src/feed-session.js';
+import { FeedSession } from '../src/feed-session.js';
 
 function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
 const page = (id, nextCursor = null) => ({ articles: [{ id }], nextCursor });

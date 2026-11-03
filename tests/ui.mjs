@@ -17,7 +17,8 @@ let browser;
 const engine = process.env.BROWSER || 'firefox';
 if (!['firefox', 'chromium', 'webkit'].includes(engine)) throw new Error('BROWSER must be firefox, chromium, or webkit.');
 try {
-  await cp('web', website, { recursive: true, filter: file => !path.resolve(file).startsWith(path.resolve('web/data/catalog')) });
+  await mkdir(website);
+  for (const item of ['index.html', 'style.css', 'src', 'images']) await cp(item, path.join(website, item), { recursive: true });
   await exec(process.env.PYTHON || 'python3', ['-c', `
 import sys,time
 from pipeline.store import *
@@ -58,7 +59,7 @@ db.close()
     });
     await route.fulfill(result);
   });
-  await context.route('https://upload.wikimedia.org/**', route => readFile('web/images/orbit.svg').then(body => route.fulfill({ body, contentType: 'image/svg+xml' })));
+  await context.route('https://upload.wikimedia.org/**', route => readFile('images/orbit.svg').then(body => route.fulfill({ body, contentType: 'image/svg+xml' })));
   const page = await context.newPage();
   await page.goto('https://wikihack.test/WikiHack-mobile/');
   await page.locator('.mention-label').first().waitFor();

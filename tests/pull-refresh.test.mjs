@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { attachPullRefresh } from '../web/src/pull-refresh.js';
+import { attachPullRefresh } from '../src/pull-refresh.js';
 
 function harness() {
   const handlers = new Map(), phases = [];

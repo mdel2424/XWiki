@@ -8,7 +8,6 @@ test-results/
 .venv/
 __pycache__/
 *.pyc
-web/data/catalog/
-web/data/.catalog-build-*/
+data/.catalog-build-*/
 dist/
 *.tar.gz

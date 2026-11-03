@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const database = process.env.WIKIHACK_DB || path.join(root, '.data/wikihack.sqlite');
 const reuse = process.argv.includes('--reuse-data');
-const catalog = path.join(root, 'web/data/catalog');
+const catalog = path.join(root, 'data/catalog');
 if (!reuse && existsSync(database)) {
   console.log('Exporting the static catalogue from the local archive…');
   const python = path.join(root, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
@@ -18,12 +18,12 @@ if (!reuse && existsSync(database)) {
 }
 let manifest;
 try { manifest = JSON.parse(await readFile(path.join(catalog, 'manifest.json'), 'utf8')); }
-catch { throw new Error('No static catalogue. Import the archive and run npm run data:export, or unpack catalogue.tar.gz into web/data/catalog.'); }
+catch { throw new Error('No static catalogue at data/catalog. Restore the committed data or import the archive and run npm run data:export.'); }
 if (manifest.kind !== 'wikihack-static' || !manifest.articleCount) throw new Error('Refusing to build an empty catalogue.');
 const destination = path.join(root, 'dist');
 await rm(destination, { recursive: true, force: true });
 await mkdir(destination, { recursive: true });
-await cp(path.join(root, 'web'), destination, { recursive: true });
+for (const item of ['index.html', 'style.css', 'src', 'images', 'data']) await cp(path.join(root, item), path.join(destination, item), { recursive: true });
 await writeFile(path.join(destination, '.nojekyll'), '');
 let bytes = 0, count = 0;
 async function measure(directory) {

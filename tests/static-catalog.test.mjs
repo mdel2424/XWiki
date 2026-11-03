@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { StaticCatalog } from '../web/src/static-catalog.js';
+import { StaticCatalog } from '../src/static-catalog.js';
 const exec = promisify(execFile);
 
 test('the full static client works under a GitHub Pages project subpath without any API', async () => {

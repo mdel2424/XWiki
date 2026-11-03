@@ -25,7 +25,7 @@ def bucket(text, count):
     return value % count
 
 
-def export_static(db, output='web/data/catalog', limit=None, article_size=256, context_size=128, rank_size=512, max_bytes=900_000_000):
+def export_static(db, output='data/catalog', limit=None, article_size=256, context_size=128, rank_size=512, max_bytes=900_000_000):
     destination = Path(output).resolve()
     if destination.is_dir() and any(destination.iterdir()):
         marker = destination / 'manifest.json'

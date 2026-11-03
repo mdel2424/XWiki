@@ -1,12 +1,12 @@
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { AlgoliaScanner, fetchJson, enrichArticles } from '../web/src/services.js';
-import { mergeArticles, applyEnrichment } from '../web/src/core.js';
+import { AlgoliaScanner, fetchJson, enrichArticles } from '../src/services.js';
+import { mergeArticles, applyEnrichment } from '../src/core.js';
 
 const { values } = parseArgs({ options: {
   since: { type: 'string', default: '2007-01-01' }, until: { type: 'string' },
-  output: { type: 'string', default: 'web/data/feed-index.json' },
+  output: { type: 'string', default: 'data/feed-index.json' },
   checkpoint: { type: 'string', default: '.index-cache/checkpoint.json' },
   resume: { type: 'boolean', default: false }, enrich: { type: 'boolean', default: false },
   'max-pages': { type: 'string' },

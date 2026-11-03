@@ -31,7 +31,7 @@ def main():
     local = commands.add_parser('import-jsonl', help='Import HN-format records from a local JSONL export')
     local.add_argument('file')
     export = commands.add_parser('export', help='Export the complete static catalogue, search and original HN context')
-    export.add_argument('--output', default='web/data/catalog')
+    export.add_argument('--output', default='data/catalog')
     export.add_argument('--limit', type=int, default=None)
     args = parser.parse_args()
     if any(getattr(args, name, 1) is not None and getattr(args, name, 1) <= 0 for name in ('max_shards', 'metadata', 'max_items', 'limit', 'interval', 'bootstrap')):

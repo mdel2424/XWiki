@@ -26,45 +26,35 @@ npm run preview
 npm run build -- --reuse-data
 ```
 
-The current full export contains **201,844 articles and 697,007 HN mentions**, about **613 MB** of published files. The build enforces a 950 MB budget. It contains every linked mention in the imported snapshot, not the 49-million-item source database or its parent graph. Generated data, the database and `dist/` are ignored by Git.
+The current full export contains **201,844 articles and 697,007 HN mentions**, about **613 MB** of published files. The build enforces a 950 MB budget. It contains every linked mention in the imported snapshot, not the 49-million-item source database or its parent graph. The exported `data/catalog/` is committed so a fresh checkout can deploy immediately. The local database and `dist/` are ignored by Git.
 
 ## Publish on GitHub Pages
 
-The repository includes [`.github/workflows/pages.yml`](.github/workflows/pages.yml), a manually triggered Pages workflow. It downloads a prepared catalogue from a GitHub Release, builds the static site, and deploys `dist/`. Large generated files stay out of Git history.
+The website lives at the **repository root**: `index.html`, `style.css`, `src/`, `images/` and `data/`. The committed catalogue is ready to serve; deployment does not require Python, a database or a release asset.
 
-1. Push the project source to your GitHub repository.
-2. Build and package the catalogue locally:
+1. In the repository's **Settings → Pages → Build and deployment**, choose **GitHub Actions** as the source.
+2. Commit these setup changes and push to **`main`**.
+3. The **Publish GitHub Pages** workflow builds and deploys automatically. You can also run it from **Actions → Publish GitHub Pages → Run workflow**.
 
-   ```sh
-   npm run build
-   npm run package:catalog
-   ```
+The expected project URL is **https://mdel2424.github.io/WikiHack-mobile/**. The workflow's deployment result supplies the actual URL. All browser paths are relative, including catalogue fetches, so the repository subpath and custom domains work.
 
-3. Create a release tagged **`static-data`** and attach **`catalogue.tar.gz`**. You can use GitHub's Releases UI or, from your authenticated repository checkout:
+The [Pages workflow](.github/workflows/pages.yml) copies only the root website files into `dist/`, adds `.nojekyll`, and uploads that directory to Pages. Pipeline tools, tests and local databases are excluded from the published artifact. `dist/` is build output; there is no separate `web/` source directory. No npm dependencies are required by the deployment build.
 
-   ```sh
-   gh release create static-data catalogue.tar.gz --title "Static catalogue" --notes "Prepared WikiHack catalogue"
-   ```
-
-4. In **Settings → Pages → Build and deployment**, choose **GitHub Actions**.
-5. In **Actions → Publish static WikiHack → Run workflow**, use the `static-data` release tag.
-
-The workflow has the Pages and OIDC permissions required by GitHub. It does not need a database, API host, Python packages, or a full archive download in CI. All browser data paths are relative to the site, so both `https://OWNER.github.io/REPO/` and custom domains work. No deployment or remote release has been created automatically.
-
-For subsequent data updates, regenerate the catalogue, replace the release asset, and rerun the workflow:
+For subsequent data updates:
 
 ```sh
 npm run data:tail
-npm run build
-npm run package:catalog
-gh release upload static-data catalogue.tar.gz --clobber
+npm run data:enrich -- --limit 1000
+npm run data:export
+npm run build -- --reuse-data
+# Commit the updated data/catalog/ files and push to main.
 ```
 
-Source-only changes can reuse the existing catalogue release. A published snapshot changes only when you rebuild and deploy it. Pull-to-refresh checks for an updated manifest and changes the random mix; it does not run the ingestion pipeline.
+Source-only changes use the committed catalogue. Pull-to-refresh checks for an updated manifest and changes the random mix; it does not run the ingestion pipeline. `npm run package:catalog` remains an optional archive/backup command and is not part of deployment.
 
 ## How the static data works
 
-`web/data/catalog/manifest.json` points to a versioned snapshot containing:
+`data/catalog/manifest.json` points to a versioned snapshot containing:
 
 - Article-card shards, with global HN counts and Wikipedia metadata.
 - Separate Rising and recent-order pages. Top order is implicit in document ordinals.
@@ -89,7 +79,7 @@ npm run data:setup
 npm run data:sync     # Full, resumable Hugging Face archive backfill
 npm run data:tail     # Official HN new IDs, updates, retries and overlap
 npm run data:enrich -- --limit 1000
-npm run data:export   # Full static export to web/data/catalog/
+npm run data:export   # Full static export to data/catalog/
 ```
 
 Additional commands are `data:watch`, `data:status`, `data:audit`, and `data:fill-gaps`. Exporting `--limit N` is explicitly marked partial; the default exports the full catalogue. The exporter reads a consistent SQLite snapshot, verifies comment offsets, stages output before replacement, and retains an existing export if generation fails or exceeds its size budget.
@@ -111,17 +101,19 @@ Firefox tests pass against a **static-only** server mounted under `/WikiHack-mob
 ## Structure
 
 ```text
-.github/workflows/pages.yml   GitHub Pages deployment from a prepared release asset
-web/                         Static website source
-web/src/static-catalog.js     Browser-side retrieval, search and pagination
-web/data/catalog/            Generated static data (ignored)
+index.html                   Website entry point at repository root
+style.css                    Mobile-first dark layout
+src/                         Browser application modules
+src/static-catalog.js        Static retrieval, search and pagination
+images/                      Bundled icons and illustrations
+data/catalog/                Complete exported catalogue (committed)
+.nojekyll                    Serve the root as plain static files
+.github/workflows/pages.yml  Deploy on pushes to main or manual runs
 pipeline/                    Offline import/enrichment/export tools
-pipeline/static_export.py    Complete sharded catalogue generator
-scripts/build-static.mjs     Build deployable dist/
-scripts/package-catalog.mjs  Package a catalogue release asset
+scripts/build-static.mjs     Assemble root website files into dist/
 scripts/serve.mjs            Static file preview only
-tests/                      Data, retrieval and Firefox browser tests
-dist/                       Deploy this directory (generated, ignored)
+tests/                       Data, retrieval and Firefox browser tests
+dist/                        Pages artifact (generated, ignored)
 ```
 
 Preferences and seen history stay in localStorage. Untrusted HN comments are escaped plain text. Wikipedia text is CC BY-SA; article histories and image pages provide attribution and image-specific licences. Independent of X, Wikipedia, Hacker News and the original WikiHack.

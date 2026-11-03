@@ -75,7 +75,7 @@ db.close()
 });
 
 test('preview rejects missing files, directories, malformed paths and traversal', async () => {
-  for (const url of ['/missing.html', '/src/', '/%ZZ', '/..%2f..%2f..%2fpackage.json']) {
+  for (const url of ['/missing.html', '/src/', '/%ZZ', '/..%2f..%2f..%2fpackage.json', '/.git/config', '/%2egit/config']) {
     assert.equal((await request(url)).status, 404, url);
   }
 });

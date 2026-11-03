@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const defaultRoot = path.resolve(fileURLToPath(new URL('../web/', import.meta.url)));
+const defaultRoot = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 export function createPreviewServer({ directory = process.env.STATIC_DIR || defaultRoot, basePath = '' } = {}) {
   const root = path.resolve(directory);
@@ -14,6 +14,7 @@ export function createPreviewServer({ directory = process.env.STATIC_DIR || defa
       if (prefix && !url.pathname.startsWith(prefix + '/')) throw new Error('Not found');
       const pathname = url.pathname.slice(prefix.length);
       const relative = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
+      if (relative.split('/').some(part => part.startsWith('.') && part !== '.nojekyll')) throw new Error('Not found');
       const file = path.resolve(root, `.${relative}`);
       if (!file.startsWith(root + path.sep) || !(await stat(file)).isFile()) throw new Error('Not found');
       res.writeHead(200, { 'Content-Type': `${types[path.extname(file)] || 'application/octet-stream'}; charset=utf-8`, 'Cache-Control': 'no-store' });
