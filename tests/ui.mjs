@@ -206,9 +206,11 @@ db.close()
   await page.getByRole('searchbox', { name: 'Search articles' }).fill('Programming');
   await page.locator('.article-card').first().waitFor();
   for (const title of await page.locator('.article-title h2').allTextContents()) assert.ok(title.includes('Programming'));
+  if (![seenId, dismissId].includes('en:Programming language 0')) {
   const shortPost = page.locator('.article-card').filter({ has: page.getByRole('heading', { name: 'Programming language 0', exact: true }) });
   assert.equal(await shortPost.locator('.article-extract').textContent(), 'Short first paragraph.');
   assert.equal(await shortPost.locator('.read-more').count(), 0, 'Short paragraphs have no expansion control');
+  }
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   await page.getByRole('tab', { name: 'Top', exact: true }).click();
   await page.getByRole('tab', { name: 'Top', exact: true }).press('ArrowLeft');

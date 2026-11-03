@@ -79,7 +79,7 @@ function nav(page, label, name) {
 function shell() {
   $('#app').innerHTML = `<main class="phone-shell">
     <header class="app-header"><div class="topbar"><button class="settings-button" data-nav="settings" aria-label="Settings">${icon('settings')}</button>
-      <button class="header-brand" data-nav="home" aria-label="WikiHack home">WikiHack</button>
+      <button class="header-brand" data-nav="home" aria-label="XWiki home">XWiki</button>
       <span class="header-spacer" aria-hidden="true"></span></div>
       ${state.page === 'home' ? `<div class="feed-tabs" role="tablist" aria-label="Feed ranking">${[['for-you', 'For you'], ['top', 'Top'], ['rising', 'Rising']].map(([mode, label]) => `<button role="tab" id="tab-${mode}" aria-controls="timeline" aria-selected="${state.mode === mode}" tabindex="${state.mode === mode ? 0 : -1}" data-mode="${mode}">${label}</button>`).join('')}</div>` : `<div class="page-heading"><h1>${({ explore: 'Explore', likes: 'Likes', settings: 'Settings' })[state.page]}</h1></div>`}
     </header><div id="page-content"></div>
@@ -115,12 +115,13 @@ function card(article, index) {
       <p class="article-extract" id="post-text-${index}">${esc(open ? paragraph : excerpt(paragraph))}</p>
       ${canExpand || open ? `<button class="read-more" data-action="expand" aria-expanded="${open}" aria-controls="post-text-${index}">${open ? 'Read less' : 'Read more'}</button>` : ''}
       ${state.settings.images !== false && (media || article.illustration) ? `<a class="article-media ${!media ? 'illustration-media' : ''}" href="${esc(wikiHref(article))}" ${wikiTarget} aria-label="Open ${esc(article.title)} on Wikipedia"><img src="${esc(media || `images/${article.illustration}.svg`)}" alt="${media ? esc(article.title) + ' — Wikipedia lead image' : 'WikiHack illustration'}" loading="lazy" referrerpolicy="no-referrer"><span class="media-caption">${media ? 'wikipedia.org' : 'WikiHack illustration'}</span></a>` : ''}
-      <div class="post-actions">
-        <button data-action="context" aria-label="View Hacker News mentions" title="${stats.count.toLocaleString()} HN mentions">${icon('comment')}<span>${article.sample ? '' : compactCount.format(stats.count)}</span></button>
-        <button class="heart-button ${liked(article) ? 'liked' : ''}" data-action="like" aria-label="${liked(article) ? 'Unlike article' : 'Like article'}" aria-pressed="${liked(article)}">${icon('heart')}</button>
-        <button class="seen-button" data-action="seen" aria-label="Mark as seen" title="I've seen this post. Don't show it again.">${icon('close')}</button>
-      </div>
-    </div></article>`;
+    </div>
+    <div class="post-actions">
+      <button data-action="context" aria-label="View Hacker News mentions" title="${stats.count.toLocaleString()} HN mentions">${icon('comment')}<span>${article.sample ? '' : compactCount.format(stats.count)}</span></button>
+      <button class="heart-button ${liked(article) ? 'liked' : ''}" data-action="like" aria-label="${liked(article) ? 'Unlike article' : 'Like article'}" aria-pressed="${liked(article)}">${icon('heart')}</button>
+      <button class="seen-button" data-action="seen" aria-label="Mark as seen" title="I've seen this post. Don't show it again.">${icon('close')}</button>
+    </div>
+    </article>`;
 }
 function renderTimeline() {
   if (!$('#timeline')) return;
