@@ -9,7 +9,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-from .store import YEAR, status
+from .store import six_months_ago, status
 
 STOP = set('a an the and of to in on for with from by is are was were it its as at that this or not be'.split())
 
@@ -55,13 +55,13 @@ def export_static(db, output='data/catalog', limit=None, article_size=256, conte
         # new comments with stale counts/offsets. No persistent database writes.
         query = '''WITH counts AS (SELECT article_id,count(*) AS total,
             count(DISTINCT CASE WHEN author!='[deleted]' THEN author END) AS people,
-            count(DISTINCT CASE WHEN author!='[deleted]' AND created_at>=? THEN author END) AS recent_people,
-            sum(CASE WHEN created_at>=? THEN 1 ELSE 0 END) AS recent_total,max(created_at) AS latest
+            count(DISTINCT CASE WHEN author!='[deleted]' AND created_at BETWEEN ? AND ? THEN author END) AS recent_people,
+            sum(CASE WHEN created_at BETWEEN ? AND ? THEN 1 ELSE 0 END) AS recent_total,max(created_at) AS latest
             FROM mentions GROUP BY article_id)
             SELECT a.*,c.total,c.people,c.recent_people,c.recent_total,c.latest
             FROM articles a JOIN counts c ON c.article_id=a.id
             ORDER BY c.people DESC,c.total DESC,a.id'''
-        params = [now - YEAR, now - YEAR]
+        params = [six_months_ago(now), now, six_months_ago(now), now]
         if limit is not None:
             query += ' LIMIT ?'
             params.append(limit)
@@ -136,6 +136,7 @@ def export_static(db, output='data/catalog', limit=None, article_size=256, conte
             'articleCount': len(rows), 'mentionCount': exported_mentions, 'risingCount': rising_count,
             'articleShardSize': article_size, 'contextShardSize': context_size, 'rankShardSize': rank_size,
             'idBuckets': 64, 'searchBuckets': 256, 'coverage': coverage,
+            'risingWindowMonths': 6, 'risingSince': six_months_ago(now), 'risingAsOf': now,
             'dataBytes': total_bytes, 'dataFiles': files}
         (stage / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
         db.execute('DROP TABLE static_ord')

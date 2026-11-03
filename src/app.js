@@ -1,4 +1,4 @@
-import { mergeArticles, applyEnrichment, uniqueAuthors, searchArticles, safeHttps, YEAR } from './core.js';
+import { mergeArticles, applyEnrichment, uniqueAuthors, searchArticles, safeHttps, rankArticles } from './core.js';
 import { enrichArticles, readStorage, writeStorage } from './services.js';
 import { recommend, emptyProfile, feedback, hidden, canonicalizeProfile } from './recommendations.js';
 import { FeedSession } from './feed-session.js';
@@ -33,7 +33,6 @@ const isHidden = article => hidden(article, state.profile);
 const metrics = article => ({
   people: article.metrics?.distinctLinkers ?? uniqueAuthors(article),
   count: article.metrics?.mentionCount ?? article.mentions?.length ?? 0,
-  recent: article.metrics?.recentLinkers ?? uniqueAuthors(article, Date.now() / 1000 - YEAR),
 });
 
 function toast(message, undo = null) {
@@ -44,17 +43,20 @@ function toast(message, undo = null) {
   toastTimer = setTimeout(() => { $('#toast').classList.remove('show'); undoAction = null; }, undo ? 7000 : 3500);
 }
 function cache() { writeStorage('feed', { articles: state.articles.slice(0, 600) }); }
-function ranked(articles = collection()) {
+function ranked(articles = collection(), offset = 0) {
   const tabIds = state.backend === 'static' ? new Set(feeds.tab().ids || []) : null;
   const eligible = articles.filter(a => !isHidden(a) && (!tabIds || tabIds.has(a.id)));
-  if (state.mode === 'for-you') return recommend(eligible, state.profile, { seed: state.seed });
-  if (state.mode === 'top') return eligible.slice().sort((a, b) => metrics(b).people - metrics(a).people || metrics(b).count - metrics(a).count || a.title.localeCompare(b.title));
-  if (state.mode === 'rising') return eligible.filter(a => a.sample || metrics(a).recent > 0)
-    .sort((a, b) => metrics(b).recent - metrics(a).recent || a.title.localeCompare(b.title));
+  if (state.mode === 'for-you') return recommend(eligible, state.profile, { seed: state.seed, sources: feeds.tab().sources, offset });
+  // Published rank files are authoritative; keep their complete-archive order.
+  if (state.backend === 'static') {
+    const byId = new Map(eligible.map(a => [a.id, a]));
+    return (feeds.tab().ids || []).map(id => byId.get(id)).filter(Boolean);
+  }
+  if (state.mode === 'top' || state.mode === 'rising') return rankArticles(eligible, state.mode);
   return eligible;
 }
 function resetOrder(preserve = []) {
-  const keep = new Set(preserve), next = ranked();
+  const keep = new Set(preserve), next = ranked(collection().filter(a => !keep.has(a.id)), preserve.length);
   state.order = [...preserve, ...next.filter(a => !keep.has(a.id)).map(a => a.id)];
   const reasons = new Map(next.map(a => [a.id, a.recommendation]));
   for (const article of collection()) if (reasons.has(article.id)) article.recommendation = reasons.get(article.id);
@@ -73,7 +75,7 @@ function nav(page, label, name) {
 }
 function shell() {
   $('#app').innerHTML = `<main class="phone-shell">
-    <header class="app-header"><div class="topbar"><button class="profile-button" data-nav="settings" aria-label="Settings">w</button>
+    <header class="app-header"><div class="topbar"><button class="settings-button" data-nav="settings" aria-label="Settings">${icon('settings')}</button>
       <button class="header-brand" data-nav="home" aria-label="WikiHack home">WikiHack</button>
       <span class="header-spacer" aria-hidden="true"></span></div>
       ${state.page === 'home' ? `<div class="feed-tabs" role="tablist" aria-label="Feed ranking">${[['for-you', 'For you'], ['top', 'Top'], ['rising', 'Rising']].map(([mode, label]) => `<button role="tab" id="tab-${mode}" aria-controls="timeline" aria-selected="${state.mode === mode}" tabindex="${state.mode === mode ? 0 : -1}" data-mode="${mode}">${label}</button>`).join('')}</div>` : `<div class="page-heading"><h1>${({ explore: 'Explore', likes: 'Likes', settings: 'Settings' })[state.page]}</h1></div>`}
@@ -190,7 +192,7 @@ async function context(article, cursor = 0) {
 }
 function sources() {
   const data = state.archive;
-  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your For you feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. Random discoveries are mixed into For you. Top counts distinct HN linkers; Rising counts linkers in the 365 days before the snapshot was built.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
+  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your For you feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. For you mixes 80% random discoveries, 10% Rising and 10% Top. Top and Rising picks in For you are shuffled from each ranking’s leading 1,000 articles. Hearts influence discovery order. Top counts distinct HN linkers across all time; Rising ranks distinct linkers during the six calendar months before the ranking was built.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
 }
 function navigate(page) {
   if (state.page === 'home') { homeScroll = scrollY; homeVisible = state.visible; }
@@ -221,7 +223,7 @@ async function load({ refresh = false, preserve = null } = {}) {
   try {
     let incoming;
     if (state.backend === 'static') {
-      const pending = feeds.load(({ mode, cursor }) => catalog.feed({ mode, cursor, seeds: Object.values(state.profile.likes), mix: state.seed }), { mode: requestedMode, reset: refresh });
+      const pending = feeds.load(({ mode, cursor }) => catalog.feed({ mode, cursor, mix: state.seed, exclude: [...(refresh ? [] : feeds.tab(mode).ids || []), ...Object.keys(state.profile.seen || {}), ...Object.keys(state.profile.rejected)] }), { mode: requestedMode, reset: refresh });
       renderTimeline();
       const result = await pending;
       if (result.stale) return;
@@ -233,7 +235,7 @@ async function load({ refresh = false, preserve = null } = {}) {
     state.paused = incoming.length === 0;
     if (preserve) resetOrder(preserve);
     else if (refresh || !state.order.length) resetOrder();
-    else { const known = new Set(state.order); state.order.push(...ranked().filter(a => !known.has(a.id)).map(a => a.id)); }
+    else resetOrder(state.order);
     cache();
   } catch {
     if (requestedMode === state.mode) { state.offline = true; toast('Couldn’t refresh. Your cached collection is available.'); }

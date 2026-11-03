@@ -42,14 +42,12 @@ db.close()
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
   const errors = [];
   const requests = [];
-  let risingGate = null;
   context.on('page', page => page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.message); }));
   await context.route('https://wikihack.test/**', async route => {
     const url = new URL(route.request().url());
     requests.push(url.pathname);
     assert.ok(url.pathname.startsWith('/WikiHack-mobile/'));
     assert.ok(!url.pathname.includes('/api/'));
-    if (url.pathname.includes('/rising/') && risingGate) await risingGate;
     const result = await new Promise(resolve => {
       let status, headers;
       server.emit('request', { url: url.pathname + url.search, method: 'GET' }, {
@@ -68,6 +66,17 @@ db.close()
   assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 0, 0)');
   const first = page.locator('.article-card').first();
   const firstId = await first.getAttribute('data-id');
+  const settings = page.locator('.topbar').getByRole('button', { name: 'Settings', exact: true });
+  assert.equal(await settings.locator('svg').count(), 1);
+  assert.equal(await settings.textContent(), '');
+  const actions = await first.locator('.post-actions > button').evaluateAll(buttons => buttons.map(b => {
+    const rect = b.getBoundingClientRect(); return { left: rect.left, right: rect.right };
+  }));
+  assert.ok(actions[2].right - actions[0].left < 200, 'Post actions form a compact group');
+  assert.ok(actions[1].left - actions[0].right <= 10);
+  await settings.click();
+  await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: 'Random', exact: true }).count(), 0);
   assert.equal(await page.getByRole('button', { name: 'Refresh feed', exact: true }).count(), 0);
   assert.equal(await first.locator('.post-actions > button').count(), 3);
@@ -103,20 +112,12 @@ db.close()
   await page.reload();
   await page.locator('.mention-label').first().waitFor();
   assert.equal(await page.locator(`.article-card[data-id="${seenId}"]`).count(), 0);
-  // Hold a cold Rising file request while switching to Top; late data must not repaint Top.
-  let releaseRising;
-  risingGate = new Promise(resolve => { releaseRising = resolve; });
-  const slowRequest = page.waitForRequest(r => r.url().includes('/rising/'));
-  const slowResponse = page.waitForResponse(r => r.url().includes('/rising/'));
+  // Rising data is also fetched for FYP, so tab switching can use the cache.
+  // FeedSession tests separately hold delayed responses to verify race handling.
   await page.getByRole('tab', { name: 'Rising', exact: true }).click();
-  await slowRequest;
   await page.getByRole('tab', { name: 'Top', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
-  const topIds = await page.locator('.article-card').evaluateAll(cards => cards.map(card => card.dataset.id));
-  releaseRising(); risingGate = null; await slowResponse;
-  await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
   assert.equal(await page.getByRole('tab', { name: 'Top', exact: true }).getAttribute('aria-selected'), 'true');
-  assert.deepEqual(await page.locator('.article-card').evaluateAll(cards => cards.map(card => card.dataset.id)), topIds);
   for (const tab of ['Rising', 'Top', 'For you']) {
     await page.getByRole('tab', { name: tab, exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');

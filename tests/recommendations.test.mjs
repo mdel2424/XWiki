@@ -34,16 +34,26 @@ test('unlike and undo restore the original profile without accumulated weights',
   assert.deepEqual(feedback(profile, python, 'unlike'), emptyProfile());
   assert.deepEqual(feedback(feedback(emptyProfile(), python, 'reject'), python, 'undo-reject'), emptyProfile());
 });
-test('For you explicitly mixes 50% interest, 40% all-time popular and 10% discovery', () => {
-  const pool = Array.from({ length: 30 }, (_, i) => article(`en:${i}`, `Article ${i}`, i % 2 ? 'Programming languages' : `Topic ${i}`, 1000 - i));
-  const ranked = recommend(pool, feedback(emptyProfile(), python, 'like'), { seed: 20 });
+test('For you uses 80% random, 10% Rising, 10% Top from separate sources', () => {
+  const pool = Array.from({ length: 60 }, (_, i) => article(`en:${i}`, `Article ${i}`, `Topic ${i}`, 1000 - i));
+  const sources = { random: pool.slice(0, 48).map(a => a.id), rising: pool.slice(48, 54).map(a => a.id), top: pool.slice(54).map(a => a.id) };
+  const ranked = recommend(pool, emptyProfile(), { seed: 20, sources });
   for (let i = 0; i < ranked.length; i += 10) {
     const block = ranked.slice(i, i + 10);
-    assert.equal(block.filter(a => a.recommendation.lane === 'interest').length, 5);
-    assert.equal(block.filter(a => a.recommendation.lane === 'popular').length, 4);
-    assert.equal(block.filter(a => a.recommendation.lane === 'discovery').length, 1);
+    for (const [lane, count] of [['random', 8], ['rising', 1], ['top', 1]]) {
+      assert.equal(block.filter(a => a.recommendation.lane === lane).length, count);
+      for (const post of block.filter(a => a.recommendation.lane === lane)) assert.ok(sources[lane].includes(post.id));
+    }
   }
   assert.equal(new Set(ranked.map(a => a.id)).size, pool.length);
+  for (const lane of ['top', 'rising']) {
+    const selected = ranked.filter(a => a.recommendation.lane === lane).map(a => a.id);
+    assert.notDeepEqual(selected, sources[lane], `${lane} picks are shuffled, not descending popularity`);
+    const refreshed = recommend(pool, emptyProfile(), { seed: 21, sources }).filter(a => a.recommendation.lane === lane).map(a => a.id);
+    assert.notDeepEqual(selected, refreshed);
+  }
+  const changedPopularity = pool.map(a => ({ ...a, metrics: { ...a.metrics, distinctLinkers: Math.pow(a._index || 20, 3) } }));
+  assert.deepEqual(recommend(changedPopularity, emptyProfile(), { seed: 20, sources }).map(a => a.id), ranked.map(a => a.id), 'popularity does not order shuffled FYP lanes');
 });
 test('reloading a persisted feedback profile gives the same personalized order', () => {
   const profile = feedback(emptyProfile(), python, 'like');

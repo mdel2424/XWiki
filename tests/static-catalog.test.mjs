@@ -6,6 +6,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { StaticCatalog } from '../src/static-catalog.js';
+import { recommend, emptyProfile } from '../src/recommendations.js';
 const exec = promisify(execFile);
 
 test('the full static client works under a GitHub Pages project subpath without any API', async () => {
@@ -55,4 +56,56 @@ db.close()
     await catalog.article('en:Earth', { cursor: 1, limit: 4 });
     assert.equal(requests.filter(url => url.includes('/context/')).length, commentsBefore);
   } finally { await rm(temporary, { recursive: true, force: true }); }
+});
+
+test('FYP samples the full archive, shuffles featured ranks, and keeps 8:1:1 across pages', async () => {
+  const count = 10000;
+  const all = Array.from({ length: count }, (_, i) => ({ id: `en:Article${i}`, title: `Article ${i}`, _index: i,
+    mentions: [], metrics: { distinctLinkers: count - i, mentionCount: count - i } }));
+  const manifest = { kind: 'wikihack-static', version: 1, generation: 'v-test', articleCount: count,
+    articleShardSize: 256, rankShardSize: 512, risingCount: 1100, risingPath: 'rising-6m-test' };
+  const base = new URL('https://example.github.io/WikiHack-mobile/data/catalog/');
+  const catalog = new StaticCatalog({ base, fetcher: async raw => {
+    const file = new URL(raw).pathname.slice(base.pathname.length);
+    let value;
+    if (file === 'manifest.json') value = manifest;
+    else if (file.includes('/articles/')) {
+      const start = Number(file.split('/').at(-1).split('.')[0]) * 256;
+      value = all.slice(start, start + 256);
+    } else if (file.includes('/rising-6m-test/')) {
+      const start = Number(file.split('/').at(-1).split('.')[0]) * 512;
+      value = Array.from({ length: Math.min(512, 1100 - start) }, (_, i) => 2000 + start + i);
+    } else throw new Error(`Unexpected request: ${file}`);
+    return { ok: true, json: async () => value };
+  } });
+  await catalog.open();
+  const top = await catalog.feed({ mode: 'top' });
+  const rising = await catalog.feed({ mode: 'rising' });
+  assert.deepEqual(top.articles.map(a => a._index), Array.from({ length: 60 }, (_, i) => i));
+  assert.deepEqual(rising.articles.map(a => a._index), Array.from({ length: 60 }, (_, i) => 2000 + i));
+  let cursor = 0;
+  const seen = [], featured = { top: [], rising: [] };
+  for (let page = 0; page < 3; page++) {
+    const result = await catalog.feed({ mix: 42, cursor, exclude: seen });
+    const ranked = recommend(result.articles, emptyProfile(), { seed: 42, sources: result.sources, offset: seen.length });
+    assert.equal(ranked.length, 60);
+    assert.ok(ranked.every(a => !seen.includes(a.id)));
+    for (let start = 0; start < 60; start += 10) {
+      const block = ranked.slice(start, start + 10);
+      for (const [lane, quota] of [['random', 8], ['rising', 1], ['top', 1]]) {
+        assert.equal(block.filter(a => a.recommendation.lane === lane).length, quota);
+        assert.ok(block.filter(a => a.recommendation.lane === lane).every(a => result.sources[lane].includes(a.id)));
+      }
+    }
+    for (const lane of ['top', 'rising']) featured[lane].push(...ranked.filter(a => a.recommendation.lane === lane).map(a => a._index));
+    assert.ok(ranked.filter(a => a.recommendation.lane === 'random').some(a => a._index >= 3000), 'random comes from beyond both featured pools');
+    seen.push(...ranked.map(a => a.id)); cursor = result.nextCursor;
+  }
+  assert.equal(new Set(seen).size, 180);
+  for (const lane of ['top', 'rising']) assert.notDeepEqual(featured[lane], [...featured[lane]].sort((a, b) => a - b));
+  const again = await catalog.feed({ mix: 42 });
+  const fresh = await catalog.feed({ mix: 43 });
+  for (const lane of ['random', 'top', 'rising']) {
+    assert.notDeepEqual(fresh.sources[lane], again.sources[lane], `${lane} changes with refresh`);
+  }
 });

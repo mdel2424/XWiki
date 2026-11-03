@@ -1,4 +1,11 @@
 export const YEAR = 365 * 24 * 60 * 60;
+export function sixMonthsAgo(now = Date.now() / 1000) {
+  const date = new Date(now * 1000), day = date.getUTCDate();
+  date.setUTCDate(1); date.setUTCMonth(date.getUTCMonth() - 6);
+  const last = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+  date.setUTCDate(Math.min(day, last));
+  return date.getTime() / 1000;
+}
 const NAMESPACES = /^(special|talk|user|user talk|wikipedia|wikipedia talk|file|file talk|mediawiki|template|template talk|help|category|portal|draft|module|book|timedtext|media):/i;
 
 export function decodeEntities(value = '') {
@@ -101,9 +108,9 @@ export function applyEnrichment(existing, enriched) {
   return result;
 }
 
-export function uniqueAuthors(article, since = 0) {
+export function uniqueAuthors(article, since = 0, until = Infinity) {
   if (since === 0 && article.metrics?.distinctLinkers != null) return article.metrics.distinctLinkers;
-  return new Set(article.mentions.filter(m => m.createdAt >= since && m.author !== '[deleted]').map(m => m.author)).size;
+  return new Set(article.mentions.filter(m => m.createdAt >= since && m.createdAt <= until && m.author !== '[deleted]').map(m => m.author)).size;
 }
 
 export function rankArticles(articles, mode, { now = Date.now() / 1000, random = Math.random } = {}) {
@@ -112,10 +119,10 @@ export function rankArticles(articles, mode, { now = Date.now() / 1000, random =
     return articles.map(article => ({ article, key: -Math.log(Math.max(Number.MIN_VALUE, random())) /
       Math.sqrt(1 + uniqueAuthors(article)) })).sort((a, b) => a.key - b.key).map(x => x.article);
   }
-  const since = mode === 'rising' ? now - YEAR : 0;
-  return articles.filter(a => mode !== 'rising' || a.sample || a.mentions.some(m => m.createdAt >= since))
-    .slice().sort((a, b) => uniqueAuthors(b, since) - uniqueAuthors(a, since) ||
-      b.mentions.filter(m => m.createdAt >= since).length - a.mentions.filter(m => m.createdAt >= since).length ||
+  const since = mode === 'rising' ? sixMonthsAgo(now) : 0;
+  return articles.filter(a => mode !== 'rising' || a.sample || a.mentions.some(m => m.createdAt >= since && m.createdAt <= now))
+    .slice().sort((a, b) => uniqueAuthors(b, since, mode === 'rising' ? now : Infinity) - uniqueAuthors(a, since, mode === 'rising' ? now : Infinity) ||
+      b.mentions.filter(m => m.createdAt >= since && (mode !== 'rising' || m.createdAt <= now)).length - a.mentions.filter(m => m.createdAt >= since && (mode !== 'rising' || m.createdAt <= now)).length ||
       a.title.localeCompare(b.title));
 }
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseWikiUrl, extractArticles, articlesFromHits, mergeArticles, applyEnrichment, uniqueAuthors,
-  rankArticles, searchArticles, plainText, YEAR } from '../src/core.js';
+  rankArticles, searchArticles, plainText, YEAR, sixMonthsAgo } from '../src/core.js';
 import { AlgoliaScanner, enrichArticles, fetchJson } from '../src/services.js';
 
 const hit = (id, author, url, createdAt = 1000) => ({ objectID: String(id), author, url, created_at_i: createdAt, _tags: ['story'], title: 'A discussion' });
@@ -41,10 +41,18 @@ test('collects stories and comments, counts distinct people, deduplicates repeat
 test('Top ranks distinct authors; Rising excludes stale mentions', () => {
   const now = 1800000000;
   const articles = articlesFromHits([hit(1, 'a', 'https://en.wikipedia.org/wiki/Earth', now - YEAR - 1),
-    hit(2, 'b', 'https://en.wikipedia.org/wiki/Earth', now - YEAR - 1),
+    hit(2, 'b', 'https://en.wikipedia.org/wiki/Earth', now - 240 * 86400),
     hit(3, 'c', 'https://en.wikipedia.org/wiki/Moon', now - 100)]);
   assert.equal(rankArticles(articles, 'top', { now })[0].title, 'Earth');
   assert.deepEqual(rankArticles(articles, 'rising', { now }).map(a => a.title), ['Moon']);
+});
+test('six-month cutoff clamps month ends and includes its boundary', () => {
+  const now = Date.parse('2026-10-31T12:00:00Z') / 1000;
+  const since = sixMonthsAgo(now);
+  assert.equal(new Date(since * 1000).toISOString(), '2026-04-30T12:00:00.000Z');
+  const pool = articlesFromHits([hit(1, 'a', 'https://en.wikipedia.org/wiki/Earth', since - 1),
+    hit(2, 'b', 'https://en.wikipedia.org/wiki/Moon', since), hit(3, 'future', 'https://en.wikipedia.org/wiki/Mars', now + 1)]);
+  assert.deepEqual(rankArticles(pool, 'rising', { now }).map(a => a.title), ['Moon']);
 });
 test('weighted random is repeat-free and deterministic with supplied randomness', () => {
   const articles = articlesFromHits([hit(1, 'a', 'https://en.wikipedia.org/wiki/Earth'), hit(2, 'b', 'https://en.wikipedia.org/wiki/Moon')]);

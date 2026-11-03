@@ -13,7 +13,7 @@ function sample(count, start, size, seed) {
   let stride = 1 + bucket(String(seed), Math.max(1, count - 1));
   while (gcd(stride, count) !== 1) stride++;
   const shift = bucket(`offset:${seed}`, count);
-  return Array.from({ length: Math.min(size, count) }, (_, i) => (shift + (start + i) * stride) % count);
+  return Array.from({ length: Math.max(0, Math.min(size, count - start)) }, (_, i) => (shift + (start + i) * stride) % count);
 }
 
 export class StaticCatalog {
@@ -39,7 +39,7 @@ export class StaticCatalog {
     const manifest = await this.read('manifest.json', { fresh: true });
     if (manifest.kind !== 'wikihack-static' || manifest.version !== 1 || !manifest.articleCount ||
         !/^v-[a-z0-9]+$/.test(manifest.generation)) throw new Error('Static catalogue is missing or unsupported.');
-    if (this.manifest?.generation !== manifest.generation) this.cache.clear();
+    if (this.manifest?.generation !== manifest.generation || this.manifest?.risingPath !== manifest.risingPath) this.cache.clear();
     this.manifest = manifest;
     return manifest;
   }
@@ -59,7 +59,7 @@ export class StaticCatalog {
     const count = name === 'rising' ? this.manifest.risingCount : this.manifest.articleCount;
     const ids = [], width = this.manifest.rankShardSize;
     for (let position = start; position < Math.min(count, start + size);) {
-      const values = await this.read(this.file(`${name}/${Math.floor(position / width)}.json`));
+      const values = await this.read(this.file(`${name === 'rising' ? this.manifest.risingPath || name : name}/${Math.floor(position / width)}.json`));
       const part = values.slice(position % width, Math.min(width, position % width + start + size - position));
       ids.push(...part); position += part.length;
       if (!part.length) break;
@@ -87,20 +87,39 @@ export class StaticCatalog {
     const ids = query.trim() ? await this.matches(query) : Array.from({ length: this.manifest.articleCount }, (_, i) => i);
     return { articles: await this.cards(ids.slice(cursor, cursor + limit)), nextCursor: cursor + limit < ids.length ? cursor + limit : null };
   }
-  async feed({ mode = 'for-you', cursor = 0, limit = 60, seeds = [], mix = 0 } = {}) {
-    const count = mode === 'rising' ? this.manifest.risingCount : this.manifest.articleCount;
-    let ids = mode === 'rising' ? await this.ranks('rising', cursor, limit) :
-      Array.from({ length: Math.max(0, Math.min(limit, count - cursor)) }, (_, i) => cursor + i);
-    if (mode === 'for-you') {
-      ids.push(...sample(count, Math.floor(cursor / limit) * 12, 12, mix));
-      if (!cursor) {
-        ids.push(...Array.from({ length: Math.min(40, count) }, (_, i) => i), ...await this.ranks('recent', 0, 30));
-        const terms = seeds.slice(-12).flatMap(seed => searchTerms(`${seed.title || ''} ${seed.description || ''} ${(seed.categories || []).join(' ')}`));
-        if (terms.length) ids.push(...(await this.matches([...new Set(terms)].slice(0, 16).join(' '), { any: true })).slice(0, 80));
-      }
+  async feed({ mode = 'for-you', cursor = 0, limit = 60, mix = 0, exclude = [] } = {}) {
+    if (mode !== 'for-you') {
+      const count = mode === 'rising' ? this.manifest.risingCount : this.manifest.articleCount;
+      const ids = mode === 'rising' ? await this.ranks('rising', cursor, limit) :
+        Array.from({ length: Math.max(0, Math.min(limit, count - cursor)) }, (_, i) => cursor + i);
+      return { articles: await this.cards(ids), nextCursor: cursor + limit < count ? cursor + limit : null, mode };
     }
-    return { articles: await this.cards(ids), nextCursor: cursor + limit < count ? cursor + limit : null, mode };
+    // Each lane owns its shuffled cursor. Refill around overlaps and seen posts
+    // rather than counting the same article toward two quotas.
+    const size = Math.max(10, Math.ceil(limit / 10) * 10);
+    const positions = typeof cursor === 'object' ? { ...cursor } : { random: 0, rising: 0, top: 0 };
+    const used = new Set(exclude), sources = { random: [], rising: [], top: [] }, articles = [];
+    const take = async (lane, wanted) => {
+      // Featured lanes sample the leading 1,000; random spans the entire archive.
+      const count = lane === 'random' ? this.manifest.articleCount :
+        Math.min(1000, lane === 'rising' ? this.manifest.risingCount : this.manifest.articleCount);
+      while (sources[lane].length < wanted && positions[lane] < count) {
+        const draw = sample(count, positions[lane], wanted - sources[lane].length, `${lane}:${mix}`);
+        positions[lane] += draw.length;
+        const indices = lane === 'rising' ? (await Promise.all(draw.map(async position =>
+          (await this.ranks('rising', position, 1))[0]))).filter(i => i != null) : draw;
+        for (const article of await this.cards(indices)) {
+          if (used.has(article.id)) continue;
+          used.add(article.id); sources[lane].push(article.id); articles.push(article);
+        }
+      }
+    };
+    await take('top', size / 10);
+    await take('rising', size / 10);
+    await take('random', size * .8);
+    return { articles, sources, nextCursor: positions.random < this.manifest.articleCount ? positions : null, mode };
   }
+
   async article(id, { cursor = 0, limit = 50 } = {}) {
     const index = await this.index(id);
     if (index == null) throw new Error('Article is not in this snapshot.');

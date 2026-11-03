@@ -1,3 +1,5 @@
+import calendar
+from datetime import datetime, timezone
 import hashlib
 import html
 import json
@@ -10,6 +12,14 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 YEAR = 365 * 86400
 NAMESPACES = re.compile(r'^(special|talk|user|user talk|wikipedia|wikipedia talk|file|file talk|mediawiki|template|template talk|help|category|portal|draft|module|book|timedtext|media):', re.I)
 TYPE_NAMES = {1: 'story', 2: 'comment', 3: 'poll', 4: 'pollopt', 5: 'job'}
+
+
+def six_months_ago(now):
+    date = datetime.fromtimestamp(now, timezone.utc)
+    month = date.year * 12 + date.month - 1 - 6
+    year, month = divmod(month, 12)
+    return int(date.replace(year=year, month=month + 1,
+        day=min(date.day, calendar.monthrange(year, month + 1)[1])).timestamp())
 
 
 def plain_text(value):
@@ -169,9 +179,9 @@ def refresh_stats(db, now=None):
     db.execute('DELETE FROM stats')
     db.execute('''INSERT INTO stats SELECT article_id,
         count(DISTINCT CASE WHEN author!='[deleted]' THEN author END),count(*),
-        count(DISTINCT CASE WHEN author!='[deleted]' AND created_at>=? THEN author END),
-        sum(CASE WHEN created_at>=? THEN 1 ELSE 0 END),max(created_at)
-        FROM mentions GROUP BY article_id''', (now - YEAR, now - YEAR))
+        count(DISTINCT CASE WHEN author!='[deleted]' AND created_at BETWEEN ? AND ? THEN author END),
+        sum(CASE WHEN created_at BETWEEN ? AND ? THEN 1 ELSE 0 END),max(created_at)
+        FROM mentions GROUP BY article_id''', (six_months_ago(now), now, six_months_ago(now), now))
     db.execute('DELETE FROM article_search')
     db.execute('''INSERT INTO article_search SELECT a.id,a.title,
         coalesce(json_extract(a.metadata,'$.description'),''),

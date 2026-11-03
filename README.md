@@ -66,9 +66,13 @@ The browser lazily fetches these files and caches a bounded number of shards. Se
 
 ## Feed and controls
 
-For you mixes **50% interest-ranked**, **40% all-time popular** and **10% discovery** candidate lanes. Hearts boost related titles, summaries and Wikipedia categories. Not interested downranks related topics. X marks only that post as seen, with Undo. Seen state and hearts persist locally; they are never public HN votes. Top and Rising use HN counts rather than hearts. Random discovery is integrated into For you.
+**Top** ranks the full archive by all-time distinct HN linkers, breaking ties by mention totals. **Rising** ranks activity within the last six calendar months, measured when the ranking is built; older and future-dated mentions do not contribute.
 
-The three post actions are comments, heart and X. Dates, save/share buttons and the refresh button are removed. Pull down at the top to refresh, or press R on desktop. Each tab owns its cursor and stale requests cannot overwrite the current tab. Previews end near 280 characters; **Read on Wikipedia** uses a normal HTTPS link, with cover images beneath the text.
+**For you** repeats **8 random discoveries, 1 Rising post and 1 Top post** per ten posts. Random draws span the complete catalogue. The Top and Rising picks are shuffled from the leading 1,000 articles in each ranking, rather than served in popularity order. Refresh changes all three shuffled selections. Each lane keeps its own cursor, refills around overlaps and seen posts, and excludes duplicates across pages. If a lane runs out of eligible posts, remaining discoveries fill the feed.
+
+Hearts boost related titles, summaries and Wikipedia categories within the discovery lane. Not interested downranks similar discoveries. X marks only that post as seen, with Undo. Seen state and hearts persist locally; they are never public HN votes. Top and Rising tabs retain their published ranking order regardless of hearts.
+
+The three post actions are comments, heart and X, grouped together beneath each post. The header cogwheel opens Settings. Dates, save/share buttons and the refresh button are removed. Pull down at the top to refresh, or press R on desktop. Each tab owns its cursor and stale requests cannot overwrite the current tab. Previews end near 280 characters; **Read on Wikipedia** uses a normal HTTPS link, with cover images beneath the text.
 
 ## Offline data preparation
 
@@ -81,6 +85,14 @@ npm run data:tail     # Official HN new IDs, updates, retries and overlap
 npm run data:enrich -- --limit 1000
 npm run data:export   # Full static export to data/catalog/
 ```
+
+With a committed export but no source database, rebuild just the six-month ranking from the original exported HN comments:
+
+```sh
+npm run data:rank
+```
+
+This publishes a new immutable Rising index and switches the manifest atomically, preserving all-time article order and original comment files. Commit the updated manifest and new rank directory before deploying. A full `data:export` also generates the six-month ranking automatically. Static rankings advance when regenerated and published.
 
 Additional commands are `data:watch`, `data:status`, `data:audit`, and `data:fill-gaps`. Exporting `--limit N` is explicitly marked partial; the default exports the full catalogue. The exporter reads a consistent SQLite snapshot, verifies comment offsets, stages output before replacement, and retains an existing export if generation fails or exceeds its size budget.
 
@@ -96,7 +108,7 @@ npx playwright install firefox
 npm run test:ui
 ```
 
-Firefox tests pass against a **static-only** server mounted under `/WikiHack-mobile/`. They check reading links, feedback persistence, tabs and delayed responses, pull-to-refresh, full-catalogue search, context files, and phone/desktop widths. They assert that no `/api` request is made. Export tests cover full context counts, pagination across file boundaries, Unicode search, redirect lookup, atomic replacement and budget failures. A physical phone and actual GitHub deployment remain separate checks.
+Firefox tests pass against a **static-only** server mounted under `/WikiHack-mobile/`. They check reading links, feedback persistence, tabs, pull-to-refresh, full-catalogue search, context files, and phone/desktop widths. They assert that no `/api` request is made. Export tests cover full context counts, pagination across file boundaries, Unicode search, redirect lookup, atomic replacement and budget failures. Unit tests also cover delayed tab responses and the 8:1:1 feed mix across pagination. A physical phone and actual GitHub deployment remain separate checks.
 
 ## Structure
 

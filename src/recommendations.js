@@ -1,3 +1,4 @@
+import { sixMonthsAgo } from './core.js';
 // Local, explainable content-based recommendations. No claim to reproduce X's model.
 const STOP = new Set(('the and for that this with from into are was were has have had but not its their they them ' +
   'which who what when where how than then also such can may will would could should about over under between ' +
@@ -88,9 +89,11 @@ export function canonicalizeProfile(profile, enriched) {
 function noise(id, seed) {
   let hash = 2166136261;
   for (const char of `${seed}:${id}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
-  return (hash >>> 0) / 4294967296;
+  hash ^= hash >>> 16; hash = Math.imul(hash, 0x7feb352d);
+  hash ^= hash >>> 15; hash = Math.imul(hash, 0x846ca68b);
+  return ((hash ^ hash >>> 16) >>> 0) / 4294967296;
 }
-export function recommend(articles, profile = emptyProfile(), { now = Date.now(), seed = 0, diversify = true } = {}) {
+export function recommend(articles, profile = emptyProfile(), { now = Date.now(), seed = 0, diversify = true, sources = null, offset = 0 } = {}) {
   const candidates = articles.filter(a => !hidden(a, profile));
   const positive = Object.values(profile.likes).slice(-100);
   const negative = Object.values(profile.rejected).slice(-100);
@@ -108,33 +111,38 @@ export function recommend(articles, profile = emptyProfile(), { now = Date.now()
     const quality = Math.min(1, Math.log1p(linkers) / 8);
     const latest = article.metrics?.latestMention || Math.max(0, ...(article.mentions || []).map(m => m.createdAt));
     const recency = latest ? Math.exp(-Math.max(0, now / 1000 - latest) / (90 * 86400)) : 0;
-    return { article, vector, aversion, quality, linkers,
+    return { article, vector, aversion, quality, linkers, affinity,
       score: .45 * quality + .1 * recency + 4 * affinity - 6 * aversion + .1 * noise(article.id, seed) - (profile.likes[article.id] ? .4 : 0),
       reason: affinity > .12 ? `Because you liked ${positiveMatches[0].title}` : 'From the HN collection' };
   });
-  // In each ten-post block: 50% interest-ranked, 40% all-time popular, 10% discovery.
-  // Quotas describe candidate lanes, not a guarantee of relevance before the first heart.
-  const pattern = ['interest', 'popular', 'interest', 'popular', 'interest', 'popular', 'interest', 'popular', 'interest', 'discovery'];
+  // Eight archive-wide discoveries, one six-month trend, one all-time top post.
+  const pattern = ['random', 'random', 'random', 'random', 'rising', 'random', 'random', 'random', 'random', 'top'];
+  const byId = new Map(pool.map(candidate => [candidate.article.id, candidate]));
+  const fromSource = lane => sources?.[lane] ? sources[lane].map(id => byId.get(id)).filter(Boolean) : [...pool];
+  const random = fromSource('random').sort((a, b) =>
+    (noise(b.article.id, seed) + b.affinity - 6 * b.aversion) - (noise(a.article.id, seed) + a.affinity - 6 * a.aversion));
   const queues = {
+    random,
+    top: sources ? fromSource('top').sort((a, b) => noise(b.article.id, `top:${seed}`) - noise(a.article.id, `top:${seed}`)) : [...pool].sort((a, b) => b.linkers - a.linkers || (b.article.metrics?.mentionCount || 0) - (a.article.metrics?.mentionCount || 0)),
+    rising: sources ? fromSource('rising').sort((a, b) => noise(b.article.id, `rising:${seed}`) - noise(a.article.id, `rising:${seed}`)) : pool.filter(c => (c.article.metrics?.recentMentionCount > 0 && c.article.metrics?.latestMention >= sixMonthsAgo(now / 1000)) ||
+      c.article.mentions?.some(m => m.createdAt >= sixMonthsAgo(now / 1000))).sort((a, b) => (b.article.metrics?.recentLinkers || 0) - (a.article.metrics?.recentLinkers || 0)),
     interest: [...pool].sort((a, b) => b.score - a.score),
-    popular: [...pool].sort((a, b) => (b.quality - 6 * b.aversion) - (a.quality - 6 * a.aversion) || b.linkers - a.linkers),
-    discovery: [...pool].sort((a, b) => (b.quality * .2 - 6 * b.aversion + noise(b.article.id, seed)) - (a.quality * .2 - 6 * a.aversion + noise(a.article.id, seed))),
   };
   const ranked = [], used = new Set();
   while (ranked.length < pool.length) {
-    const lane = diversify ? pattern[ranked.length % pattern.length] : 'interest';
-    const queue = queues[lane];
-    // Bounded lookahead adds local topic diversity without a quadratic full-pool scan.
-    const shortlist = queue.filter(candidate => !used.has(candidate.article.id)).slice(0, diversify ? 16 : 1);
-    let next = shortlist[0], best = -Infinity;
-    for (let i = 0; i < shortlist.length; i++) {
-      const candidate = shortlist[i];
-      const repetition = diversify ? Math.max(0, ...ranked.slice(-3).map(r => cosine(candidate.vector, r.vector))) : 0;
-      const value = -i / 16 - .35 * repetition;
-      if (value > best) { best = value; next = candidate; }
+    let lane = diversify ? pattern[(offset + ranked.length) % pattern.length] : 'interest';
+    let next = queues[lane].find(candidate => !used.has(candidate.article.id));
+    // Small or exhausted archives may not have enough unused posts in a lane.
+    if (!next) { lane = 'random'; next = random.find(candidate => !used.has(candidate.article.id)); }
+    if (!next) {
+      lane = ['rising', 'top'].find(name => queues[name].some(candidate => !used.has(candidate.article.id)));
+      if (!lane) break;
+      next = queues[lane].find(candidate => !used.has(candidate.article.id));
     }
     used.add(next.article.id);
-    ranked.push({ ...next, lane, reason: lane === 'popular' ? 'Popular across Hacker News' : lane === 'discovery' ? 'Something a little different' : next.reason });
+    const reason = lane === 'top' ? 'Popular across Hacker News · all time' : lane === 'rising' ? 'Trending on Hacker News · last six months' :
+      next.affinity > .12 ? next.reason : 'Random discovery from the HN archive';
+    ranked.push({ ...next.article, recommendation: { score: next.score, reason, lane } });
   }
-  return ranked.map(({ article, score, reason, lane }) => ({ ...article, recommendation: { score, reason, lane } }));
+  return ranked;
 }

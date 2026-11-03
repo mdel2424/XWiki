@@ -4,7 +4,7 @@ export const FEED_MODES = ['for-you', 'top', 'rising'];
 export class FeedSession {
   constructor() {
     this.mode = 'for-you';
-    this.tabs = new Map(FEED_MODES.map(mode => [mode, { ids: null, cursor: 0, ticket: 0, loading: false }]));
+    this.tabs = new Map(FEED_MODES.map(mode => [mode, { ids: null, sources: null, cursor: 0, ticket: 0, loading: false }]));
   }
   select(mode) {
     if (!this.tabs.has(mode)) return false;
@@ -16,6 +16,9 @@ export class FeedSession {
     for (const tab of this.tabs.values()) {
       if (!tab.ids) continue;
       for (const article of enriched) {
+        if (tab.sources) for (const lane of Object.keys(tab.sources)) {
+          tab.sources[lane] = [...new Set(tab.sources[lane].map(id => article.sourceIds?.includes(id) ? article.id : id))];
+        }
         tab.ids = [...new Set(tab.ids.map(id => article.sourceIds?.includes(id) ? article.id : id))];
       }
     }
@@ -28,6 +31,10 @@ export class FeedSession {
       const response = await loader({ mode, cursor });
       if (ticket !== tab.ticket) return { stale: true, current: false };
       tab.ids = [...new Set([...(reset ? [] : tab.ids || []), ...response.articles.map(a => a.id)])];
+      if (response.sources) {
+        tab.sources = Object.fromEntries(Object.entries(response.sources).map(([lane, ids]) =>
+          [lane, [...new Set([...(reset ? [] : tab.sources?.[lane] || []), ...ids])]]));
+      }
       tab.cursor = response.nextCursor;
       return { response, stale: false, current: this.mode === mode };
     } catch (error) {
