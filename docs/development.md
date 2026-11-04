@@ -27,7 +27,7 @@ npm run build -- --reuse-data
 npm run preview
 ```
 
-The build copies `index.html`, `site.webmanifest`, `style.css`, `src/`, `images/`, and `data/` into `dist/` and adds `.nojekyll`. The bundled export contains 201,844 articles and 697,007 HN mentions, about 613 MB of published files. The build enforces a 950 MB budget. `dist/` and the local database are ignored by Git.
+The build copies `index.html`, `site.webmanifest`, `style.css`, `src/`, `images/`, and `data/` into `dist/` and adds `.nojekyll`. The bundled export contains 201,844 articles and 697,007 HN mentions, about 616 MB of published files. The build enforces a 950 MB budget. `dist/` and the local database are ignored by Git.
 
 With an imported archive at `.data/wikihack.sqlite`, `npm run build` exports fresh data before assembling the site. Use `--reuse-data` for UI changes and builds that should retain the existing snapshot.
 

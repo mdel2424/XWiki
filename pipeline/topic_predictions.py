@@ -83,11 +83,23 @@ def collect(catalog='data/catalog', cache='.data/topic-predictions.sqlite', work
                 known.add(key)
     batches = [(lang, titles[i:i + 50]) for lang, titles in groups.items() for i in range(0, len(titles), 50)]
     log(f'Topic predictions: {sum(map(len, groups.values())):,} articles in {len(batches):,} batches; existing cache retained.', flush=True)
+    hosts = set()
+    if batches:
+        request = urllib.request.Request('https://meta.wikimedia.org/w/api.php?action=sitematrix&format=json&smtype=language&smsiteprop=url', headers={'User-Agent': USER_AGENT})
+        with urllib.request.urlopen(request, timeout=45) as response:
+            matrix = json.load(response)['sitematrix']
+        hosts = {site['url'] for language in matrix.values() if isinstance(language, dict)
+                 for site in language.get('site', [])}
     lock, next_request = threading.Lock(), [0.0]
     def fetch(batch):
         lang, titles = batch
-        if not re.fullmatch(r'[a-z][a-z0-9-]{0,24}', lang):
+        if not re.fullmatch(r'[a-z][a-z0-9-]{0,24}', lang) or f'https://{lang}.wikipedia.org' not in hosts:
             return lang, [(title, title, 'unsupported', {}) for title in titles]
+        # A literal pipe is invalid in a MediaWiki title and would split the API list.
+        invalid = [(title, title, 'missing', {}) for title in titles if '|' in title]
+        titles = [title for title in titles if '|' not in title]
+        if not titles:
+            return lang, invalid
         params = {'action': 'query', 'prop': 'cirrusdoc', 'cdincludes': 'weighted_tags', 'redirects': 1,
             'converttitles': 1, 'titles': '|'.join(titles), 'format': 'json', 'formatversion': 2,
             'maxlag': 5, 'maxage': 3600, 'smaxage': 3600}
@@ -107,7 +119,7 @@ def collect(catalog='data/catalog', cache='.data/topic-predictions.sqlite', work
                 data = json.loads(body)
                 if data.get('error', {}).get('code') in ('maxlag', 'ratelimited', 'readonly'):
                     raise RuntimeError(data['error']['code'])
-                return lang, decode_batch(titles, data)
+                return lang, invalid + decode_batch(titles, data)
             except urllib.error.HTTPError as error:
                 if error.code in (400, 404, 410):
                     return lang, [(title, title, 'unsupported', {}) for title in titles]

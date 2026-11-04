@@ -67,6 +67,8 @@ npm run data:topics -- --refresh
 
 Raw scores and canonical titles are stored in the ignored `.data/topic-predictions.sqlite` cache. The collector limits request concurrency and request rate, retries temporary failures, and retains successful batches. It fetches only articles already in the exported HN-linked catalog, not all of Wikipedia. Missing pages, unsupported wikis and pages without scores are recorded separately; their posts stay in the general feed and search.
 
+The bundled topic snapshot checks all 201,844 catalog entries: 190,957 have model scores, 3,941 have no scores, 6,944 are missing or invalid pages, and two use unsupported wiki hosts. Of these entries, 181,932 meet the membership threshold for at least one display group. These are snapshot counts; the manifest records the counts for each subsequent publication.
+
 The publisher writes a content-addressed topic index, validates article ordinals, then atomically switches `manifest.topicIndex`. Article shards and existing context offsets are preserved. The index and manifest record classifier provenance, threshold, collection time, coverage, and per-topic article counts. UI counts come from this catalog rather than another app’s totals. The client loads the shared membership index on the first topic visit. Full exports reuse cached predictions; run `data:topics` after exporting newly imported articles to collect their missing scores. Commit the updated manifest and topic index with the app before deployment.
 
 ## Coverage and reconciliation
@@ -82,4 +84,4 @@ The implementation was exercised with deterministic local fixtures, including in
 
 ## Static publication
 
-`pipeline/static_export.py` exports all articles and original linked comments from a consistent database snapshot. Cards, search postings, rank orders, ID aliases and comment blocks are split into lazily fetched files. Context offsets are checked against full mention totals. A generation identifier prevents mixing resource paths from different snapshots. The browser client in `src/static-catalog.js` handles candidate retrieval, prefix search and context pagination without `/api` endpoints. The full current site is approximately 613 MB; the build rejects output above 950 MB.
+`pipeline/static_export.py` exports all articles and original linked comments from a consistent database snapshot. Cards, search postings, rank orders, ID aliases and comment blocks are split into lazily fetched files. Context offsets are checked against full mention totals. A generation identifier prevents mixing resource paths from different snapshots. The browser client in `src/static-catalog.js` handles candidate retrieval, prefix search and context pagination without `/api` endpoints. The full current site is approximately 616 MB; the build rejects output above 950 MB.
