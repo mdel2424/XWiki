@@ -1,3 +1,4 @@
+import { imageSource, recoverImage } from './images.js';
 import { fetchReadership } from './readership.js';
 import { mergeArticles, applyEnrichment, uniqueAuthors, searchArticles, safeHttps, rankArticles } from './core.js';
 import { enrichArticles, readStorage, writeStorage, fetchFirstParagraph } from './services.js';
@@ -157,7 +158,7 @@ function renderPage() {
   renderTimeline();
 }
 function card(article, index) {
-  const stats = metrics(article), media = safeHttps(article.thumbnail);
+  const stats = metrics(article), media = imageSource(safeHttps(article.thumbnail));
   const paragraph = paragraphText(article), open = expanded.has(article.id);
   const canExpand = Boolean(article.firstParagraph || article.sample) && paragraph !== excerpt(paragraph);
   return `<article class="article-card" data-id="${esc(article.id)}">
@@ -509,7 +510,7 @@ document.addEventListener('keydown', event => {
 });
 $('#sheet').addEventListener('click', event => { if (event.target === $('#sheet')) closeSheet(); });
 $('#sheet').addEventListener('close', () => { generation++; returnFocus?.focus({ preventScroll: true }); });
-document.addEventListener('error', event => { if (event.target.tagName === 'IMG') event.target.closest('.article-media')?.remove(); }, true);
+document.addEventListener('error', event => { if (event.target.tagName === 'IMG') recoverImage(event.target); }, true);
 window.addEventListener('online', () => { if (state.offline) load({ refresh: true }); });
 
 attachPullRefresh({
