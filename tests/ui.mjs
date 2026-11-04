@@ -33,6 +33,12 @@ with db:
   ingest(db,[{'id':i*2+1,'type':'story','title':title,'by':'fixture-user'+str(i),'time':now-1000,'url':url}])
   a=wiki_url(url)
   merge_metadata(db,a['id'],{**a,'extract':(topic+' is an interesting field of scientific discovery. ')*14,'description':topic,**({'firstParagraph':'Short first paragraph.'} if i==0 else {}),'categories':[topic],'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
+ for j,topic in enumerate(['Ethics','Archaeology','Genetics','Cognitive psychology','Macroeconomics','Electronic engineering','Visual art']):
+  for k in range(3):
+   title=topic+' '+str(k);url='https://en.wikipedia.org/wiki/'+title.replace(' ','_')
+   ingest(db,[{'id':1000+j*3+k,'type':'story','title':title,'by':'new-topic-user','time':now-1000,'url':url}])
+   a=wiki_url(url)
+   merge_metadata(db,a['id'],{**a,'description':topic,'extract':(topic+' is a field of study. ')*14,'categories':[topic],'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
  resolve_threads(db);refresh_stats(db)
 export_static(db,sys.argv[2]+'/data/catalog')
 db.close()
@@ -336,6 +342,56 @@ db.close()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.getByRole('tab', { name: 'Physics', exact: true }).press('Home');
   }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Browse topics', exact: true }).click();
+  assert.equal(await page.locator('.topic-open').count(), 10);
+  await page.screenshot({ path: 'test-results/topics-picker.png' });
+  const newTopics = [['Philosophy', 'Ethics '], ['History', 'Archaeology '], ['Biology', 'Genetics '],
+    ['Psychology', 'Cognitive psychology '], ['Economics', 'Macroeconomics '],
+    ['Engineering', 'Electronic engineering '], ['Arts & Culture', 'Visual art ']];
+  for (const [topic] of newTopics) {
+    await page.getByRole('button', { name: `Pin ${topic}`, exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: `Unpin ${topic}`, exact: true }).getAttribute('aria-pressed'), 'true');
+  }
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('button', { name: 'Browse topics' }).evaluate(el => el === document.activeElement), true);
+  assert.equal(await page.getByRole('tab').count(), 11);
+  for (const [topic, prefix] of newTopics) {
+    await page.getByRole('tab', { name: topic, exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
+    const titles = await page.locator('.article-title h2').allTextContents();
+    assert.ok(titles.length > 0 && titles.every(title => title.startsWith(prefix)), `${topic} only shows its subject`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+  await page.screenshot({ path: 'test-results/pinned-topics-feed.png' });
+  await page.reload();
+  await page.locator('.mention-label').first().waitFor();
+  assert.equal(await page.getByRole('tab').count(), 11, 'Pins persist after reload');
+  await page.getByRole('tab', { name: 'History', exact: true }).click();
+  await page.getByRole('button', { name: 'Browse topics' }).click();
+  await page.getByRole('button', { name: 'Unpin History', exact: true }).click();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('tab', { name: 'History', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.getByRole('button', { name: 'Browse topics' }).click();
+  await page.locator('[data-action="open-topic"][data-topic="history"]').click();
+  await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
+  assert.equal(await page.getByRole('tab', { name: 'History', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.ok((await page.locator('.article-title h2').allTextContents()).every(title => title.startsWith('Archaeology ')));
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('wikihack:pinned-topics-v1')).includes('history')), false);
+  await page.getByRole('tab', { name: 'For you', exact: true }).click();
+  assert.equal(await page.getByRole('tab', { name: 'History', exact: true }).count(), 0, 'Opening a topic does not pin it');
+  await page.getByRole('button', { name: 'Browse topics' }).click();
+  while (await page.locator('.topic-pin[aria-pressed="true"]').count()) await page.locator('.topic-pin[aria-pressed="true"]').first().click();
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await page.locator('.mention-label').first().waitFor();
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you'], 'All topics can be unpinned without restoring defaults');
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.getByRole('button', { name: 'Browse topics' }).click();
+  await page.getByRole('button', { name: 'Pin Arts & Culture', exact: true }).click();
+  assert.equal(await page.evaluate(() => document.querySelector('dialog').scrollWidth <= document.querySelector('dialog').clientWidth), true, 'Topic picker fits a narrow phone');
+  await page.keyboard.press('Escape');
   assert.deepEqual(errors, []);
   assert.ok(requests.some(url => url.includes('/search/')));
   assert.ok(requests.some(url => url.includes('/context/')));

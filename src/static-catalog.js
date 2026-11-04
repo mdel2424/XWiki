@@ -1,5 +1,5 @@
 import { discoveryOrder } from './discovery.js';
-import { matchesTopic, topicFor, isPersonalized } from './topics.js';
+import { matchesTopic, topicFor, isPersonalized, EXACT_TOPIC_TERMS } from './topics.js';
 
 const STOP = new Set('a an the and of to in on for with from by is are was were it its as at that this or not be'.split(' '));
 export function searchTerms(text = '') {
@@ -87,7 +87,7 @@ export class StaticCatalog {
     }
     return ids;
   }
-  async matches(query, { any = false } = {}) {
+  async matches(query, { any = false, exact = [] } = {}) {
     const terms = searchTerms(query).slice(0, 16);
     if (!terms.length) return [];
     const groups = [...new Set(terms.map(t => bucket(t.slice(0, 2), this.manifest.searchBuckets)))];
@@ -97,7 +97,7 @@ export class StaticCatalog {
       const ids = new Set();
       const values = shards.get(bucket(term.slice(0, 2), this.manifest.searchBuckets));
       for (const [word, postings] of Object.entries(values)) {
-        if (term.length === 1 ? word === term : word.startsWith(term)) for (const id of postings) ids.add(id);
+        if (term.length === 1 || exact.includes(term) ? word === term : word.startsWith(term)) for (const id of postings) ids.add(id);
       }
       for (const id of ids) hits.set(id, (hits.get(id) || 0) + 1);
     }
@@ -111,8 +111,11 @@ export class StaticCatalog {
   async topicPool(topic) {
     if (!this.topicPools.has(topic.id)) {
       // Search the full catalogue, then verify the subject on every returned card.
-      const query = [...new Set(topic.terms.map(term => term.split(' ')[0]))].join(' ');
-      const pending = this.matches(query, { any: true }).then(indices => indices.sort((a, b) => a - b))
+      const terms = [...new Set(topic.terms.map(term => searchTerms(term)[0]).filter(Boolean))];
+      const queries = [];
+      for (let i = 0; i < terms.length; i += 16) queries.push(terms.slice(i, i + 16).join(' '));
+      const pending = Promise.all(queries.map(query => this.matches(query, { any: true, exact: EXACT_TOPIC_TERMS })))
+        .then(groups => [...new Set(groups.flat())].sort((a, b) => a - b))
         .catch(error => { this.topicPools.delete(topic.id); throw error; });
       this.topicPools.set(topic.id, pending);
     }

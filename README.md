@@ -67,7 +67,9 @@ The browser lazily fetches these files and caches a bounded number of shards. Se
 
 ## Feed and controls
 
-**Home** has **For you**, **Math**, **Computer Science**, and **Physics** in a horizontally scrollable tab bar. Topic lists use the same personalized discovery feed, restricted to articles whose titles, descriptions or Wikipedia categories identify that subject. Candidate search spans the full catalogue; incidental mentions in body text do not qualify an article. Each list owns its candidates and pagination cursor. Likes, Not interested and seen feedback apply across all lists.
+**Home** has **For you** and your pinned topics in a horizontally scrollable tab bar. **Topics** opens a picker for **Math**, **Computer Science**, **Physics**, **Philosophy**, **History**, **Biology**, **Psychology**, **Economics**, **Engineering**, and **Arts & Culture**. Open a row to browse its feed or use the pin button to add/remove it from Home. Math, Computer Science and Physics start pinned. Pins are saved in this browser, in the order you pin them, and all topics can be unpinned. For you is always available. Opening an unpinned topic shows it temporarily in the tab bar without saving a pin; unpinning the selected topic returns to For you.
+
+Topic lists use the same personalized discovery feed, restricted to articles whose titles, descriptions or Wikipedia categories identify that subject. Candidate search spans the full catalogue; incidental mentions in body text do not qualify an article. Each list owns its candidates and pagination cursor. Likes, Not interested and seen feedback apply across all lists.
 
 **Search** contains article lookup and the **Top** and **Rising** pages. Top ranks the full archive by all-time distinct HN linkers, breaking ties by mention totals. Rising ranks activity within the last six calendar months, measured when the ranking is built; older and future-dated mentions do not contribute. Entering a query shows search results; choosing a ranking clears the query. Home and Search remember their selected tabs independently during a session.
 

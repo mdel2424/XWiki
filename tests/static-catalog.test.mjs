@@ -60,11 +60,12 @@ db.close()
 });
 
 test('topic feeds paginate the full archive with personal discovery lanes and exclude incidental matches', async () => {
-  const count = 1200;
-  const categories = ['Algebra', 'Computer science', 'Quantum physics', 'History'];
+  const count = 1320;
+  const categories = ['Algebra', 'Computer science', 'Quantum physics', 'Ethics', 'Archaeology',
+    'Genetics', 'Cognitive psychology', 'Macroeconomics', 'Electronic engineering', 'Visual art', 'Unrelated'];
   const all = Array.from({ length: count }, (_, i) => ({ id: `en:Topic${i}`, title: `Topic ${i}`, _index: i,
-    mentions: [], categories: [categories[i % 4]],
-    extract: 'An incidental mention of mathematics, computer programming and quantum physics.',
+    mentions: [], categories: [categories[i % categories.length]],
+    extract: 'An incidental mention of mathematics, computer programming, quantum physics, philosophy, history, biology, psychology, economics, engineering and art.',
     metrics: { distinctLinkers: 10, mentionCount: count - i } }));
   const postings = Array.from({ length: 256 }, () => ({}));
   for (const article of all) for (const term of searchTerms(`${article.title} ${article.categories.join(' ')} ${article.extract}`)) {
@@ -87,7 +88,8 @@ test('topic feeds paginate the full archive with personal discovery lanes and ex
       return { ok: true, json: async () => value };
     } });
     await catalog.open();
-    for (const [mode, category] of [['math', 0], ['computer-science', 1], ['physics', 2]]) {
+    for (const [category, mode] of ['math', 'computer-science', 'physics', 'philosophy', 'history',
+      'biology', 'psychology', 'economics', 'engineering', 'arts-culture'].entries()) {
       const exclude = [`en:Topic${category}`], visited = new Set(exclude);
       let cursor = 0, pages = 0;
       do {
@@ -96,7 +98,7 @@ test('topic feeds paginate the full archive with personal discovery lanes and ex
         assert.ok(result.articles.every(a => !visited.has(a.id)), `${mode} excludes hidden and previous posts`);
         if (pages === 0) {
           const ranked = recommend(result.articles, emptyProfile(), { seed: 42, sources: result.sources });
-          assert.equal(ranked.length, 60);
+          assert.equal(ranked.length, 60, `${mode} produces a full first page`);
           assert.deepEqual(Object.fromEntries(['random', 'top', 'rising'].map(lane =>
             [lane, ranked.filter(a => a.recommendation.lane === lane).length])), { random: 48, top: 6, rising: 6 });
         }
@@ -105,7 +107,7 @@ test('topic feeds paginate the full archive with personal discovery lanes and ex
         cursor = result.nextCursor;
         assert.ok(++pages < 20, 'Topic pagination finishes');
       } while (cursor);
-      assert.equal(visited.size, count / 4, `${mode} reaches every relevant article, even beyond the first global page`);
+      assert.equal(visited.size, count / categories.length, `${mode} reaches every relevant article, even beyond the first global page`);
     }
   }
 });

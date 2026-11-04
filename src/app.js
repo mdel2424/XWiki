@@ -7,7 +7,7 @@ import { attachPullRefresh } from './pull-refresh.js';
 import { SAMPLE_ARTICLES } from './samples.js';
 import { icon } from './icons.js';
 import { excerpt, firstParagraph, wikipediaLink } from './reading.js';
-import { HOME_FEEDS, RANKED_FEEDS, isPersonalized, matchesTopic, topicFor } from './topics.js';
+import { HOME_FEEDS, RANKED_FEEDS, TOPICS, homeFeeds, normalizePins, isPersonalized, matchesTopic, topicFor } from './topics.js';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -24,6 +24,7 @@ const state = {
   settings: readStorage('settings', { images: true }), page: 'home', mode: 'for-you', homeMode: 'for-you', exploreMode: 'top',
   visible: 12, order: [], query: '', backend: null, archive: null, searchIds: null, searchCursor: null,
   searchLoading: false,
+  pins: normalizePins(readStorage('pinned-topics-v1', null)),
   loading: true, offline: false, ready: false, paused: false, seed: Math.floor(Math.random() * 1e9),
 };
 let observer, toastTimer, returnFocus, searchTimer, undoAction, homeScroll = 0, homeVisible = 12, generation = 0, searchTicket = 0;
@@ -87,12 +88,40 @@ function feedTabs(items, label) {
     return `<button role="tab" id="tab-${id}" aria-controls="timeline" aria-selected="${selected}" tabindex="${selected || isSearching() && id === state.exploreMode ? 0 : -1}" data-mode="${id}">${label}</button>`;
   }).join('')}</div>`;
 }
+function homeTabBar() {
+  return `<div class="home-feed-nav"><div class="home-tabs-host">${feedTabs(homeFeeds(state.pins, state.homeMode), 'Home feeds')}</div><button class="topics-button" data-action="topics" aria-label="Browse topics" aria-haspopup="dialog" title="Browse and pin topics">${icon('lists')}<span>Topics</span></button></div>`;
+}
+function browseTopics() {
+  showSheet('Topics', `<p class="topics-intro">Open any topic. Pin favorites to keep them on Home.</p><p id="pin-status" class="pin-status" role="status" aria-live="polite">${state.pins.length} topics pinned</p><div class="topic-list">${TOPICS.map(topic => {
+    const pinned = state.pins.includes(topic.id);
+    return `<div class="topic-row"><button class="topic-open" data-action="open-topic" data-topic="${topic.id}"><strong>${esc(topic.label)}</strong><span>${esc(topic.description)}</span></button><button class="topic-pin ${pinned ? 'pinned' : ''}" data-action="pin-topic" data-topic="${topic.id}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${esc(topic.label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin from' : 'Pin to'} Home">${icon('pin')}</button></div>`;
+  }).join('')}</div>`);
+  $('#sheet').scrollTop = 0;
+}
+function togglePin(button) {
+  const topic = topicFor(button.dataset.topic);
+  if (!topic) return;
+  const wasPinned = state.pins.includes(topic.id);
+  const next = wasPinned ? state.pins.filter(id => id !== topic.id) : [...state.pins, topic.id];
+  if (!writeStorage('pinned-topics-v1', next)) { toast('Device storage is full. Pins could not be saved.'); return; }
+  state.pins = next;
+  button.classList.toggle('pinned', !wasPinned);
+  button.setAttribute('aria-pressed', String(!wasPinned));
+  button.setAttribute('aria-label', `${wasPinned ? 'Pin' : 'Unpin'} ${topic.label}`);
+  button.title = `${wasPinned ? 'Pin to' : 'Unpin from'} Home`;
+  if (wasPinned && state.homeMode === topic.id) {
+    state.homeMode = 'for-you'; state.visible = 12; homeScroll = 0; homeVisible = 12;
+    activateFeed('for-you'); renderPage(); ensureFeed();
+  }
+  $('.home-tabs-host').innerHTML = feedTabs(homeFeeds(state.pins, state.homeMode), 'Home feeds');
+  $('#pin-status').textContent = `${next.length} ${next.length === 1 ? 'topic' : 'topics'} pinned`;
+}
 function shell() {
   $('#app').innerHTML = `<main class="phone-shell">
     <header class="app-header"><div class="topbar"><button class="settings-button" data-nav="settings" aria-label="Settings">${icon('settings')}</button>
       <button class="header-brand" data-nav="home" aria-label="XWiki home">XWiki</button>
       <span class="header-spacer" aria-hidden="true"></span></div>
-      ${state.page === 'home' ? feedTabs(HOME_FEEDS, 'Home feeds') : state.page === 'explore' ? `<h1 class="sr-only">Search</h1><div class="search-wrap"><label class="search-field">${icon('search')}<input id="search" type="search" aria-label="Search articles" placeholder="Search Wikipedia articles on HN" value="${esc(state.query)}" autocomplete="off"></label></div>${feedTabs(RANKED_FEEDS, 'Archive rankings')}` : `<div class="page-heading"><h1>${({ likes: 'Likes', settings: 'Settings' })[state.page]}</h1></div>`}
+      ${state.page === 'home' ? homeTabBar() : state.page === 'explore' ? `<h1 class="sr-only">Search</h1><div class="search-wrap"><label class="search-field">${icon('search')}<input id="search" type="search" aria-label="Search articles" placeholder="Search Wikipedia articles on HN" value="${esc(state.query)}" autocomplete="off"></label></div>${feedTabs(RANKED_FEEDS, 'Archive rankings')}` : `<div class="page-heading"><h1>${({ likes: 'Likes', settings: 'Settings' })[state.page]}</h1></div>`}
     </header><div id="page-content"></div>
     <nav class="bottom-nav" aria-label="Navigation">${nav('home', 'Home', 'home')}${nav('explore', 'Search', 'search')}${nav('likes', 'Likes', 'heart')}${nav('settings', 'Settings', 'settings')}</nav>
   </main>`;
@@ -257,7 +286,7 @@ async function context(article, cursor = 0) {
 }
 function sources() {
   const data = state.archive;
-  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your For you feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. For you mixes 80% weighted random discoveries, 10% Rising and 10% Top. Articles linked by fewer than five people appear rarely. The discovery draw favors broader HN interest, especially articles linked by ten or more people, while keeping some room for rare discoveries. Top and Rising picks in For you are shuffled from each ranking’s leading 1,000 articles. Hearts influence discovery order. Home topic lists use the same personalized feed, limited to articles about Math, Computer Science or Physics. Search contains the Top and Rising pages. Top counts distinct HN linkers across all time; Rising ranks distinct linkers during the six calendar months before the ranking was built.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
+  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your For you feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. For you mixes 80% weighted random discoveries, 10% Rising and 10% Top. Articles linked by fewer than five people appear rarely. The discovery draw favors broader HN interest, especially articles linked by ten or more people, while keeping some room for rare discoveries. Top and Rising picks in For you are shuffled from each ranking’s leading 1,000 articles. Hearts influence discovery order. Home topic lists use the same personalized feed, limited to the selected subject. Browse Topics to open any list and pin favorites to Home. Pins stay saved in this browser. Search contains the Top and Rising pages. Top counts distinct HN linkers across all time; Rising ranks distinct linkers during the six calendar months before the ranking was built.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
 }
 function navigate(page) {
   if (state.page === 'home') { homeScroll = scrollY; homeVisible = state.visible; }
@@ -348,6 +377,20 @@ async function loadMore() {
   else if (isFeedPage() && state.backend === 'static') await load();
   else if (isSearching() && state.searchCursor !== null) await searchCatalogue(state.query, state.searchCursor);
 }
+function selectFeed(mode) {
+  const items = state.page === 'home' ? HOME_FEEDS : RANKED_FEEDS;
+  if (!items.some(feed => feed.id === mode)) return;
+  if (state.page === 'home') state.homeMode = mode;
+  else {
+    state.exploreMode = mode; state.query = ''; state.searchLoading = false;
+    searchTicket++; clearTimeout(searchTimer);
+  }
+  state.visible = 12; activateFeed(mode);
+  shell(); scrollTo(0, 0);
+  const tab = $(`#tab-${state.mode}`);
+  tab.focus({ preventScroll: true }); tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  ensureFeed();
+}
 function closeMenus() {
   document.querySelectorAll('.post-menu').forEach(menu => { menu.hidden = true; });
   document.querySelectorAll('[data-action="menu"]').forEach(button => button.setAttribute('aria-expanded', 'false'));
@@ -365,20 +408,7 @@ document.addEventListener('click', async event => {
   }
   if (button.disabled) return;
   if (button.dataset.nav) { navigate(button.dataset.nav); return; }
-  if (button.dataset.mode) {
-    const items = state.page === 'home' ? HOME_FEEDS : RANKED_FEEDS;
-    if (!items.some(feed => feed.id === button.dataset.mode)) return;
-    if (state.page === 'home') state.homeMode = button.dataset.mode;
-    else {
-      state.exploreMode = button.dataset.mode; state.query = ''; state.searchLoading = false;
-      searchTicket++; clearTimeout(searchTimer);
-    }
-    state.visible = 12; activateFeed(button.dataset.mode);
-    shell(); scrollTo(0, 0);
-    const tab = $(`#tab-${state.mode}`);
-    tab.focus({ preventScroll: true }); tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    ensureFeed(); return;
-  }
+  if (button.dataset.mode) { selectFeed(button.dataset.mode); return; }
   const action = button.dataset.action, article = findArticle(button);
   if (action === 'menu') {
     const menu = button.parentElement.querySelector('.post-menu'), open = menu.hidden;
@@ -386,7 +416,10 @@ document.addEventListener('click', async event => {
     if (open) menu.querySelector('button').focus({ preventScroll: true }); return;
   }
   closeMenus();
-  if (action === 'close') closeSheet();
+  if (action === 'topics') browseTopics();
+  else if (action === 'pin-topic') togglePin(button);
+  else if (action === 'open-topic' && topicFor(button.dataset.topic)) { closeSheet(); selectFeed(button.dataset.topic); }
+  else if (action === 'close') closeSheet();
   else if (action === 'sources') sources();
   else if (action === 'expand' && article) await toggleParagraph(article);
   else if (action === 'context' && article) await context(article);
