@@ -28,7 +28,7 @@ XWiki turns Wikipedia articles shared on Hacker News into a personal, X-style fe
 ## Follow your curiosity
 
 - **A feed that learns your interests.** For you mixes discoveries, popular articles, and rising topics. Heart a post to see more related ideas; mark it as seen to hide it, or choose Not interested to steer recommendations away from it.
-- **Your subjects, your timeline.** Open any topic or pin favorites beside For you. Computer Science, Physics, and History start pinned; your choices stay saved in your browser.
+- **Your subjects, your timeline.** Open any topic or pin favorites beside For you. The picker starts alphabetically; drag its handles to set your own order, including your pinned tabs. Computer Science, Physics, and History start pinned; your choices stay saved in your browser.
 - **Read a little. Explore further.** Expand a preview to its full first paragraph, or open the article on Wikipedia when something catches your attention.
 - **See why it was shared.** The comments button opens the original Hacker News mentions, with links back to their discussions.
 - **Find your next rabbit hole.** Search the archive, browse all-time favorites in Top, or explore the last six months of activity in Rising.

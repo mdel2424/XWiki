@@ -1,4 +1,5 @@
 const paths = {
+  'drag-handle': '<path d="M5 8h14M5 12h14M5 16h14"/>',
   pin: '<path d="M8 3h8v2h-1v5l3 4v2H6v-2l3-4V5H8Z"/><path d="M12 16v6"/>',
   'timeline-settings': '<path d="M3 7h9m4 0h5M3 17h3m4 0h11"/><circle cx="14" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
   hash: '<path d="m10 3-4 18M18 3l-4 18M4 8h17M2 16h17"/>',

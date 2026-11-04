@@ -69,6 +69,8 @@ The exporter reads a consistent SQLite snapshot, checks comment offsets, and sta
 
 Recommendations, likes, seen history, and pins stay in the browser. Saved preferences use localStorage. Topic matching checks article titles, descriptions, and Wikipedia categories; mentions in body text alone do not qualify an article. Top and Rising preserve published ranking order regardless of likes. Original HN comment text is escaped before rendering.
 
+The topic picker defaults to alphabetical order. Dragging a handle saves a custom order separately from pin membership; pinned Home tabs follow that custom order. Without a saved order, the Home defaults remain Computer Science, Physics, History. Reordering supports mouse and touch, edge scrolling, and Space/arrow/Enter keyboard controls with Escape to cancel. New topics are appended alphabetically to saved orders.
+
 ## Tests
 
 ```sh
@@ -92,6 +94,7 @@ site.webmanifest              Home-screen metadata and icons
 style.css                     Dark, responsive interface
 src/app.js                    UI and navigation
 src/topics.js                 Topic definitions and pin defaults
+src/topic-reorder.js          Pointer and keyboard topic reordering
 src/static-catalog.js         Static retrieval, search and pagination
 src/recommendations.js        Local recommendation ranking
 images/                       Icons and illustrations

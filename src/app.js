@@ -7,7 +7,8 @@ import { attachPullRefresh } from './pull-refresh.js';
 import { SAMPLE_ARTICLES } from './samples.js';
 import { icon } from './icons.js';
 import { excerpt, firstParagraph, wikipediaLink } from './reading.js';
-import { HOME_FEEDS, RANKED_FEEDS, TOPICS, homeFeeds, normalizePins, isPersonalized, matchesTopic, topicFor } from './topics.js';
+import { HOME_FEEDS, RANKED_FEEDS, homeFeeds, normalizePins, normalizeTopicOrder, isPersonalized, matchesTopic, topicFor } from './topics.js';
+import { attachTopicReorder } from './topic-reorder.js';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -19,12 +20,14 @@ const feeds = new FeedSession();
 const cached = readStorage('feed', { articles: [] });
 const storedProfile = readStorage('profile-v1', emptyProfile());
 const profile = storedProfile.version === 1 && storedProfile.likes && storedProfile.rejected ? storedProfile : emptyProfile();
+const storedTopicOrder = readStorage('topic-order-v1', null);
 const state = {
   articles: cached.articles || [], profile,
   settings: readStorage('settings', { images: true }), page: 'home', mode: 'for-you', homeMode: 'for-you', exploreMode: 'top',
   visible: 12, order: [], query: '', backend: null, archive: null, searchIds: null, searchCursor: null,
   searchLoading: false,
   pins: normalizePins(readStorage('pinned-topics-v1', null)),
+  topicOrder: Array.isArray(storedTopicOrder) ? normalizeTopicOrder(storedTopicOrder) : null,
   loading: true, offline: false, ready: false, paused: false, seed: Math.floor(Math.random() * 1e9),
 };
 let observer, toastTimer, returnFocus, searchTimer, undoAction, homeScroll = 0, homeVisible = 12, generation = 0, searchTicket = 0;
@@ -90,14 +93,25 @@ function feedTabs(items, label) {
   }).join('')}</div>`;
 }
 function homeTabBar() {
-  return `<div class="home-tabs-host">${feedTabs(homeFeeds(state.pins, state.homeMode), 'Home feeds')}</div>`;
+  return `<div class="home-tabs-host">${feedTabs(homeFeeds(state.pins, state.homeMode, state.topicOrder), 'Home feeds')}</div>`;
 }
 function browseTopics() {
-  showSheet('Topics', `<p class="topics-intro">Pin your favorites to your Home timeline.</p><p id="pin-status" class="sr-only" role="status" aria-live="polite">${state.pins.length} topics pinned</p><div class="topic-list">${TOPICS.map(topic => {
+  showSheet('Topics', `<p class="topics-intro">Pin favorites. Drag to reorder.</p><p id="topic-sort-hint" class="sr-only">On a reorder handle, press Space to pick up a topic, use arrow keys to move it, then Space or Enter to save. Escape cancels.</p><p id="pin-status" class="sr-only" role="status" aria-live="polite">${state.pins.length} topics pinned</p><p id="topic-order-status" class="sr-only" role="status" aria-live="polite"></p><div class="topic-list" role="list" aria-label="Topic order">${normalizeTopicOrder(state.topicOrder).map(id => {
+    const topic = topicFor(id);
     const pinned = state.pins.includes(topic.id);
-    return `<div class="topic-row"><button class="topic-open" data-action="open-topic" data-topic="${topic.id}"><span class="topic-symbol" aria-hidden="true">${icon('hash')}</span><span class="topic-copy"><strong>${esc(topic.label)}</strong><span>${esc(topic.description)}</span></span></button><button class="topic-pin ${pinned ? 'pinned' : ''}" data-action="pin-topic" data-topic="${topic.id}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${esc(topic.label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin from' : 'Pin to'} Home">${icon('pin')}</button></div>`;
+    return `<div class="topic-row" role="listitem" data-topic-id="${topic.id}"><button class="topic-open" data-action="open-topic" data-topic="${topic.id}"><span class="topic-symbol" aria-hidden="true">${icon('hash')}</span><span class="topic-copy"><strong>${esc(topic.label)}</strong><span>${esc(topic.description)}</span></span></button><button class="topic-pin ${pinned ? 'pinned' : ''}" data-action="pin-topic" data-topic="${topic.id}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${esc(topic.label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin from' : 'Pin to'} Home">${icon('pin')}</button><button class="topic-reorder" type="button" aria-label="Reorder ${esc(topic.label)}" aria-describedby="topic-sort-hint" aria-pressed="false" title="Drag to reorder">${icon('drag-handle')}</button></div>`;
   }).join('')}</div>`);
   $('#sheet').scrollTop = 0;
+  attachTopicReorder({
+    list: $('.topic-list'),
+    announce: message => { $('#topic-order-status').textContent = message; },
+    save: order => {
+      if (!writeStorage('topic-order-v1', order)) { toast('Device storage is full. Topic order could not be saved.'); return false; }
+      state.topicOrder = order;
+      $('.home-tabs-host').innerHTML = feedTabs(homeFeeds(state.pins, state.homeMode, order), 'Home feeds');
+      return true;
+    },
+  });
 }
 function togglePin(button) {
   const topic = topicFor(button.dataset.topic);
@@ -114,7 +128,7 @@ function togglePin(button) {
     state.homeMode = 'for-you'; state.visible = 12; homeScroll = 0; homeVisible = 12;
     activateFeed('for-you'); renderPage(); ensureFeed();
   }
-  $('.home-tabs-host').innerHTML = feedTabs(homeFeeds(state.pins, state.homeMode), 'Home feeds');
+  $('.home-tabs-host').innerHTML = feedTabs(homeFeeds(state.pins, state.homeMode, state.topicOrder), 'Home feeds');
   $('#pin-status').textContent = `${next.length} ${next.length === 1 ? 'topic' : 'topics'} pinned`;
 }
 function shell() {

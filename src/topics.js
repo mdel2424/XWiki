@@ -37,11 +37,24 @@ export const isPersonalized = mode => HOME_FEEDS.some(feed => feed.id === mode);
 
 export const EXACT_TOPIC_TERMS = ['art', 'math'];
 export const DEFAULT_PINS = ['computer-science', 'physics', 'history'];
+export const DEFAULT_TOPIC_ORDER = [...TOPICS].sort((a, b) => a.label.localeCompare(b.label, 'en')).map(topic => topic.id);
+export function normalizeTopicOrder(value) {
+  const saved = Array.isArray(value) ? [...new Set(value.filter(id => topicFor(id)))] : [];
+  return [...saved, ...DEFAULT_TOPIC_ORDER.filter(id => !saved.includes(id))];
+}
+export function moveTopic(order, id, index) {
+  const ids = normalizeTopicOrder(order);
+  if (!ids.includes(id)) return ids;
+  ids.splice(ids.indexOf(id), 1);
+  ids.splice(Math.max(0, Math.min(ids.length, index)), 0, id);
+  return ids;
+}
 export function normalizePins(value) {
   return Array.isArray(value) ? [...new Set(value.filter(id => topicFor(id)))] : [...DEFAULT_PINS];
 }
-export function homeFeeds(pins, active = 'for-you') {
-  const ids = normalizePins(pins);
+export function homeFeeds(pins, active = 'for-you', order = null) {
+  let ids = normalizePins(pins);
+  if (order) ids = normalizeTopicOrder(order).filter(id => ids.includes(id));
   // An unpinned topic can be opened without silently pinning it.
   if (topicFor(active) && !ids.includes(active)) ids.push(active);
   return [HOME_FEEDS[0], ...ids.map(topicFor)];

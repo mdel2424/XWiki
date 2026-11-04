@@ -44,9 +44,9 @@ export_static(db,sys.argv[2]+'/data/catalog')
 db.close()
 `, database, website]);
   browser = await ({ firefox, chromium, webkit })[engine].launch({ headless: true });
-  // Firefox does not support Playwright's isMobile option; use a touch viewport
-  // with the actual engine's user agent rather than impersonating Chrome.
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  // Firefox uses a narrow desktop viewport for native mouse pointer events.
+  // Chromium also exercises native touch input through its DevTools protocol.
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: engine !== 'firefox' });
   const errors = [];
   const requests = [];
   const paragraphRequests = [];
@@ -354,6 +354,8 @@ db.close()
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Browse topics', exact: true }).click();
   assert.equal(await page.locator('.topic-open').count(), 10);
+  assert.deepEqual(await page.locator('.topic-copy strong').allTextContents(),
+    ['Arts & Culture', 'Biology', 'Computer Science', 'Economics', 'Engineering', 'History', 'Math', 'Philosophy', 'Physics', 'Psychology']);
   await page.screenshot({ path: 'test-results/topics-picker.png' });
   const newTopics = [['Philosophy', 'Ethics '], ['History', 'Archaeology '], ['Biology', 'Genetics '],
     ['Psychology', 'Cognitive psychology '], ['Economics', 'Macroeconomics '],
@@ -401,6 +403,90 @@ db.close()
   await page.getByRole('button', { name: 'Browse topics' }).click();
   await page.getByRole('button', { name: 'Pin Arts & Culture', exact: true }).click();
   assert.equal(await page.evaluate(() => document.querySelector('dialog').scrollWidth <= document.querySelector('dialog').clientWidth), true, 'Topic picker fits a narrow phone');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Browse topics' }).click();
+  for (const topic of ['Computer Science', 'Physics', 'History']) await page.getByRole('button', { name: `Pin ${topic}`, exact: true }).click();
+  await page.locator('dialog').evaluate(dialog => { dialog.scrollTop = 0; });
+  const pickerOrder = () => page.locator('.topic-row').evaluateAll(rows => rows.map(row => row.dataset.topicId));
+  const originalOrder = await pickerOrder();
+  const pinsBeforeDrag = await page.evaluate(() => localStorage.getItem('wikihack:pinned-topics-v1'));
+  const historyHandle = page.getByRole('button', { name: 'Reorder History', exact: true });
+  await historyHandle.scrollIntoViewIfNeeded();
+  const historyBox = await historyHandle.boundingBox();
+  const artsBox = await page.locator('.topic-row[data-topic-id="arts-culture"]').boundingBox();
+  await page.mouse.move(historyBox.x + historyBox.width / 2, historyBox.y + historyBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(historyBox.x + historyBox.width / 2, artsBox.y + 4, { steps: 15 });
+  await page.mouse.up();
+  assert.deepEqual(await pickerOrder(), ['history', ...originalOrder.filter(id => id !== 'history')], 'Dragging moves only the chosen topic');
+  assert.equal(await page.evaluate(() => localStorage.getItem('wikihack:pinned-topics-v1')), pinsBeforeDrag, 'Dragging preserves pins');
+  await page.keyboard.press('Escape');
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'History', 'Arts & Culture', 'Computer Science', 'Physics']);
+  await page.reload();
+  await page.locator('.article-card').first().waitFor();
+  await page.getByRole('button', { name: 'Browse topics' }).click();
+  assert.equal((await pickerOrder())[0], 'history', 'Dragged order persists after reload');
+  const physicsHandle = page.getByRole('button', { name: 'Reorder Physics', exact: true });
+  await physicsHandle.focus();
+  await physicsHandle.press('Space');
+  await physicsHandle.press('Home');
+  await physicsHandle.press('Enter');
+  assert.equal((await pickerOrder())[0], 'physics', 'Keyboard reordering works');
+  const savedOrder = await pickerOrder();
+  await physicsHandle.press('Space');
+  await physicsHandle.press('ArrowDown');
+  await physicsHandle.press('Escape');
+  assert.deepEqual(await pickerOrder(), savedOrder, 'Escape restores the original order');
+  assert.equal(await page.locator('dialog').evaluate(dialog => dialog.open), true, 'Canceling a reorder keeps the picker open');
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('wikihack:topic-order-v1'))), savedOrder);
+  if (engine === 'chromium') {
+    const client = await context.newCDPSession(page);
+    const touch = (type, x = 0, y = 0) => client.send('Input.dispatchTouchEvent', {
+      type, touchPoints: ['touchEnd', 'touchCancel'].includes(type) ? [] : [{ x, y, id: 0 }],
+    });
+    await page.locator('dialog').evaluate(dialog => { dialog.scrollTop = 0; });
+    const csHandle = page.getByRole('button', { name: 'Reorder Computer Science', exact: true });
+    const csBox = await csHandle.boundingBox();
+    const firstBox = await page.locator('.topic-row').first().boundingBox();
+    await touch('touchStart', csBox.x + csBox.width / 2, csBox.y + csBox.height / 2);
+    await touch('touchMove', csBox.x + csBox.width / 2, firstBox.y + 8);
+    await touch('touchEnd');
+    assert.equal((await pickerOrder())[0], 'computer-science', 'A native touch drag reorders topics');
+    const topBox = await csHandle.boundingBox();
+    const dialogBox = await page.locator('dialog').boundingBox();
+    await touch('touchStart', topBox.x + topBox.width / 2, topBox.y + topBox.height / 2);
+    await touch('touchMove', topBox.x + topBox.width / 2, dialogBox.y + dialogBox.height - 6);
+    await page.waitForFunction(() => document.querySelector('.topic-row:last-child').dataset.topicId === 'computer-science' && document.querySelector('dialog').scrollTop > 0);
+    await touch('touchEnd');
+    const touchOrder = await pickerOrder();
+    const lastBox = await csHandle.boundingBox();
+    await touch('touchStart', lastBox.x + lastBox.width / 2, lastBox.y + lastBox.height / 2);
+    await touch('touchMove', lastBox.x + lastBox.width / 2, lastBox.y - 80);
+    await touch('touchCancel');
+    assert.deepEqual(await pickerOrder(), touchOrder, 'An interrupted touch gesture restores the order');
+    const beforeScroll = await page.locator('dialog').evaluate(dialog => dialog.scrollTop);
+    await touch('touchStart', 130, 300);
+    for (let y = 340; y <= 640; y += 40) await touch('touchMove', 130, y);
+    await touch('touchEnd');
+    await page.waitForFunction(before => document.querySelector('dialog').scrollTop < before, beforeScroll);
+    assert.deepEqual(await pickerOrder(), touchOrder, 'Swiping the row text scrolls without reordering');
+    await client.detach();
+  }
+  const beforeFailedSave = await pickerOrder();
+  await page.evaluate(() => {
+    window.originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) {
+      if (key === 'wikihack:topic-order-v1') throw new DOMException('Full', 'QuotaExceededError');
+      return window.originalSetItem.call(this, key, value);
+    };
+  });
+  const firstHandle = page.locator('.topic-reorder').first();
+  await firstHandle.focus(); await firstHandle.press('Space'); await firstHandle.press('End'); await firstHandle.press('Enter');
+  assert.deepEqual(await pickerOrder(), beforeFailedSave, 'A failed save restores the displayed order');
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('wikihack:topic-order-v1'))), beforeFailedSave);
+  await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; delete window.originalSetItem; });
+  await page.screenshot({ path: 'test-results/topics-reorder.png' });
   await page.keyboard.press('Escape');
   assert.deepEqual(errors, []);
   assert.ok(requests.some(url => url.includes('/search/')));

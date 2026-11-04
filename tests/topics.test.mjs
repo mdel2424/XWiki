@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TOPICS, DEFAULT_PINS, homeFeeds, normalizePins, matchesTopic } from '../src/topics.js';
+import { TOPICS, DEFAULT_PINS, DEFAULT_TOPIC_ORDER, homeFeeds, normalizePins, normalizeTopicOrder, moveTopic, matchesTopic } from '../src/topics.js';
 
 test('topic lists recognize subjects from titles, descriptions and categories', () => {
   for (const [topic, article] of [
@@ -41,6 +41,26 @@ test('pin preferences preserve empty choices, remove unknown or duplicate IDs, a
   const pins = ['biology'];
   assert.deepEqual(homeFeeds(pins, 'history').map(feed => feed.id), ['for-you', 'biology', 'history']);
   assert.deepEqual(pins, ['biology'], 'Opening an unpinned topic never changes preferences');
+});
+
+test('picker defaults to alphabetical order, preserving custom order and appending new topics', () => {
+  assert.deepEqual(normalizeTopicOrder(null).map(id => TOPICS.find(topic => topic.id === id).label),
+    ['Arts & Culture', 'Biology', 'Computer Science', 'Economics', 'Engineering', 'History', 'Math', 'Philosophy', 'Physics', 'Psychology']);
+  const custom = normalizeTopicOrder(['physics', 'history', 'physics', 'unknown']);
+  assert.deepEqual(custom.slice(0, 2), ['physics', 'history']);
+  assert.equal(new Set(custom).size, TOPICS.length);
+  assert.deepEqual(custom.slice(2), DEFAULT_TOPIC_ORDER.filter(id => !['physics', 'history'].includes(id)));
+  assert.deepEqual(normalizeTopicOrder('broken'), DEFAULT_TOPIC_ORDER);
+});
+
+test('reordering changes only position, and pinned tabs follow custom order without changing pin membership', () => {
+  const moved = moveTopic(null, 'physics', 0);
+  assert.deepEqual(moved, ['physics', ...DEFAULT_TOPIC_ORDER.filter(id => id !== 'physics')]);
+  assert.equal(moveTopic(moved, 'physics', 99).at(-1), 'physics');
+  assert.equal(moveTopic(moved, 'history', -1)[0], 'history');
+  assert.deepEqual(homeFeeds(DEFAULT_PINS).map(feed => feed.id), ['for-you', 'computer-science', 'physics', 'history']);
+  assert.deepEqual(homeFeeds(DEFAULT_PINS, 'for-you', moved).map(feed => feed.id), ['for-you', 'physics', 'computer-science', 'history']);
+  assert.deepEqual(homeFeeds([], 'for-you', moved).map(feed => feed.id), ['for-you']);
 });
 
 test('incidental mentions in body text cannot turn an unrelated article into a topic post', () => {

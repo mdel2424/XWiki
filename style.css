@@ -44,6 +44,12 @@ h1,h2,h3,h4,p { margin:0; }
 .topic-pin.pinned { color:var(--text); }
 .topic-pin.pinned .icon { fill:currentColor; }
 .topic-pin:hover { background:#ffffff0f; color:var(--text); }
+.topic-reorder { display:grid; place-items:center; flex-shrink:0; width:36px; height:44px; padding:0; color:var(--muted); cursor:grab; touch-action:none; user-select:none; border-radius:6px; }
+.topic-reorder .icon { width:18px; height:18px; }
+.topic-reorder:hover,.topic-reorder[aria-pressed="true"] { color:var(--text); background:#ffffff0a; }
+.topic-list.is-reordering { user-select:none; }
+.topic-row.is-dragging { position:relative; z-index:1; background:var(--soft); box-shadow:0 4px 18px #0009; }
+.topic-row.is-dragging .topic-reorder { cursor:grabbing; }
 .page-heading { padding:10px 17px 14px; }
 .page-heading h1 { font-size:22px; font-weight:800; }
 .source-note { min-height:39px; display:flex; align-items:center; justify-content:center; gap:7px; width:100%; padding:8px 12px; font-size:11px; color:var(--muted); border-bottom:1px solid var(--line); }
