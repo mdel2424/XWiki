@@ -158,6 +158,7 @@ class PipelineTest(unittest.TestCase):
         self.rebuild()
         def request(url):
             self.assertIn('categories', unquote(url))
+            self.assertIn('pilicense=any', url)
             return {'query': {'redirects': [{'from': 'Bikeshedding', 'to': "Parkinson's law of triviality"}], 'pages': [{
                 'title': "Parkinson's law of triviality", 'extract': 'A law about trivial discussions',
                 'categories': [{'title': 'Category:Decision-making'}], 'links': [{'title': 'Groupthink'}],

@@ -124,3 +124,18 @@ test('late enrichment retains fresh mentions and does not merge different articl
   assert.equal(result.find(a => a.title === 'Earth').mentions.length, 2);
   assert.equal(result.find(a => a.title === 'Moon').mentions.length, 1);
 });
+
+test('film and television posters request non-free page images and refresh cached missing thumbnails', async () => {
+  const titles = ['Wild Wild Country', 'Chinatown (1974 film)', "The Mystery of Al Capone's Vaults"];
+  const sources = ['https://upload.wikimedia.org/wikipedia/en/a/a8/Wild_Wild_Country.png',
+    'https://upload.wikimedia.org/wikipedia/en/3/38/Chinatownposter1.jpg',
+    'https://upload.wikimedia.org/wikipedia/en/8/83/The_Mystery_of_Al_Capones%27s_Vaults.jpg'];
+  const articles = titles.map(title => ({ id: `en:${title}`, title, lang: 'en', mentions: [], thumbnail: '', metadataLoaded: true }));
+  const enriched = await enrichArticles(articles, { request: async raw => {
+    const params = new URL(raw).searchParams;
+    assert.equal(params.get('pilicense'), 'any', 'The default free-only filter excludes these posters');
+    return { query: { pages: titles.map((title, i) => ({ title, thumbnail: { source: sources[i] } })) } };
+  } });
+  assert.deepEqual(enriched.map(article => article.thumbnail), sources);
+  assert.ok(enriched.every(article => article.imageMetadataVersion === 1));
+});

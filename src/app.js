@@ -334,7 +334,7 @@ function ensureFeed() {
 }
 async function hydrate(articles) {
   if (state.page === 'likes') return;
-  const missing = articles.filter(a => !a.sample && !a.metadataLoaded && !hydrating.has(a.id)).slice(0, 12);
+  const missing = articles.filter(a => !a.sample && (!a.metadataLoaded || (!a.thumbnail && a.imageMetadataVersion !== 1)) && !hydrating.has(a.id)).slice(0, 12);
   if (!missing.length) return;
   missing.forEach(a => hydrating.add(a.id));
   try {

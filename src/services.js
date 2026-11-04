@@ -92,7 +92,7 @@ export async function enrichArticles(articles, { request = fetchJson } = {}) {
       const batch = entries.slice(i, i + 12);
       const params = new URLSearchParams({ action: 'query', format: 'json', formatversion: '2',
         origin: '*', prop: 'extracts|pageimages|pageterms|categories|links', exintro: '1', explaintext: '1',
-        exsentences: '5', piprop: 'thumbnail', pithumbsize: '960', pilimit: '12',
+        exsentences: '5', piprop: 'thumbnail', pilicense: 'any', pithumbsize: '960', pilimit: '12',
         wbptterms: 'description', clshow: '!hidden', cllimit: '50', pllimit: '50', plnamespace: '0',
         redirects: '1', titles: batch.map(a => a.title).join('|') });
       const data = await request(`https://${lang}.wikipedia.org/w/api.php?${params}`);
@@ -108,6 +108,7 @@ export async function enrichArticles(articles, { request = fetchJson } = {}) {
           thumbnail: page?.thumbnail?.source || article.thumbnail || '',
           categories: page?.categories?.map(c => c.title.replace(/^Category:/, '')) || article.categories || [],
           related: page?.links?.map(link => link.title) || article.related || [],
+          imageMetadataVersion: page && !page.missing && !page.invalid ? 1 : article.imageMetadataVersion,
           metadataLoaded: Boolean(page && !page.missing) });
       }
     }

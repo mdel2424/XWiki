@@ -15,7 +15,7 @@ def enrich(db, limit=100, request=request_json, log=print):
             batch = entries[start:start + 20]
             params = {'action': 'query', 'format': 'json', 'formatversion': 2, 'redirects': 1,
                 'prop': 'extracts|pageimages|pageterms|categories|links', 'exintro': 1, 'explaintext': 1,
-                'exsentences': 5, 'piprop': 'thumbnail', 'pithumbsize': 900, 'pilimit': 20,
+                'exsentences': 5, 'piprop': 'thumbnail', 'pilicense': 'any', 'pithumbsize': 960, 'pilimit': 20,
                 'wbptterms': 'description', 'clshow': '!hidden', 'cllimit': 50, 'pllimit': 50, 'plnamespace': 0,
                 'titles': '|'.join(row['title'] for row in batch)}
             data = request(f'https://{lang}.wikipedia.org/w/api.php?{urlencode(params)}')
@@ -38,7 +38,7 @@ def enrich(db, limit=100, request=request_json, log=print):
                         'thumbnail': page.get('thumbnail', {}).get('source', ''),
                         'categories': [c['title'].removeprefix('Category:') for c in page.get('categories', [])],
                         'related': [link['title'] for link in page.get('links', [])],
-                        'metadataLoaded': True})
+                        'imageMetadataVersion': 1, 'metadataLoaded': True})
                     merge_metadata(db, row['id'], article)
             log(f'Wikipedia metadata: {lang}, {len(batch)} titles')
             time.sleep(.25)
