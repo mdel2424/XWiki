@@ -20,6 +20,24 @@ test('tabs keep separate candidates and pagination cursors', async () => {
   assert.equal(feeds.tab('rising').cursor, 180);
   assert.equal(feeds.select('random'), false);
 });
+test('topic lists own their cursors and cannot replace another selected list', async () => {
+  const feeds = new FeedSession(), pending = deferred();
+  feeds.select('math');
+  const math = feeds.load(() => pending.promise);
+  feeds.select('physics');
+  await feeds.load(async () => page('quantum', { random: 60, top: 6, rising: 6 }));
+  pending.resolve(page('algebra', { random: 70, top: 8, rising: 9 }));
+  assert.equal((await math).current, false);
+  assert.deepEqual(feeds.tab().ids, ['quantum']);
+  feeds.select('math');
+  await feeds.load(async ({ cursor }) => {
+    assert.deepEqual(cursor, { random: 70, top: 8, rising: 9 });
+    return page('geometry');
+  });
+  assert.deepEqual(feeds.tab().ids, ['algebra', 'geometry']);
+  assert.equal(feeds.tab('computer-science').ids, null);
+  assert.equal(feeds.tab('for-you').ids, null);
+});
 test('rapid tab switches cannot commit an old response over the active tab', async () => {
   const feeds = new FeedSession(), first = deferred(), second = deferred();
   const personal = feeds.load(() => first.promise);

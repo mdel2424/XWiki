@@ -67,11 +67,13 @@ The browser lazily fetches these files and caches a bounded number of shards. Se
 
 ## Feed and controls
 
-**Top** ranks the full archive by all-time distinct HN linkers, breaking ties by mention totals. **Rising** ranks activity within the last six calendar months, measured when the ranking is built; older and future-dated mentions do not contribute.
+**Home** has **For you**, **Math**, **Computer Science**, and **Physics** in a horizontally scrollable tab bar. Topic lists use the same personalized discovery feed, restricted to articles whose titles, descriptions or Wikipedia categories identify that subject. Candidate search spans the full catalogue; incidental mentions in body text do not qualify an article. Each list owns its candidates and pagination cursor. Likes, Not interested and seen feedback apply across all lists.
+
+**Search** contains article lookup and the **Top** and **Rising** pages. Top ranks the full archive by all-time distinct HN linkers, breaking ties by mention totals. Rising ranks activity within the last six calendar months, measured when the ranking is built; older and future-dated mentions do not contribute. Entering a query shows search results; choosing a ranking clears the query. Home and Search remember their selected tabs independently during a session.
 
 **For you** repeats **8 random discoveries, 1 Rising post and 1 Top post** per ten posts. Random draws span the complete catalogue but strongly suppress articles linked by fewer than five distinct HN users. Their draw weight is only 2–4% of a five-linker article's weight. Above that threshold, weight grows as `(min(linkers, 100) / 5)^0.65`, favoring articles with 10+ linkers while capping the advantage of extremely popular posts. Rare low-link discoveries remain possible. The Top and Rising picks are shuffled from the leading 1,000 articles in each ranking, rather than served in popularity order. Refresh changes all three shuffled selections. Each lane keeps its own cursor, refills around overlaps and seen posts, and excludes duplicates across pages. If a lane runs out of eligible posts, remaining discoveries fill the feed.
 
-Hearts boost related titles, summaries and Wikipedia categories within the discovery lane. Not interested downranks similar discoveries. X marks only that post as seen, with Undo. Seen state and hearts persist locally; they are never public HN votes. Top and Rising tabs retain their published ranking order regardless of hearts.
+Hearts boost related titles, summaries and Wikipedia categories within the discovery lane, including topic lists. Topic lists select their featured Top and Rising candidates within that subject. Not interested downranks similar discoveries. X marks only that post as seen, with Undo. Seen state and hearts persist locally; they are never public HN votes. Top and Rising in Search retain their published ranking order regardless of hearts.
 
 The three post actions are comments, heart and X, grouped together beneath each post. The header cogwheel opens Settings. Dates, save/share buttons and the refresh button are removed. Pull down at the top to refresh, or press R on desktop. Each tab owns its cursor and stale requests cannot overwrite the current tab. Previews end near 280 characters. **Read more** expands inline to the complete first paragraph; **Read less** collapses it. Visible posts prefetch and cache their first paragraph before offering expansion. Preview and expanded text use that same paragraph, so tapping Read more never fetches replacement text. Short paragraphs show no Read more button. Cached text remains available offline. Clicking the post body, title or cover opens the article through a normal HTTPS Wikipedia link. Comments, hearts, dismissal and expansion act independently. The three action icons use equal spacing and fixed touch targets, including after liking a post.
 
@@ -118,6 +120,7 @@ index.html                   Website entry point at repository root
 style.css                    Mobile-first dark layout
 src/                         Browser application modules
 src/static-catalog.js        Static retrieval, search and pagination
+src/topics.js                Home lists and subject matching
 images/                      Bundled icons and illustrations
 data/catalog/                Complete exported catalogue (committed)
 .nojekyll                    Serve the root as plain static files

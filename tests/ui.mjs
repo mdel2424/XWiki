@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { chromium, firefox, webkit } from 'playwright';
 import { createPreviewServer } from '../scripts/serve.mjs';
+import { bucket } from '../src/static-catalog.js';
 
 const exec = promisify(execFile);
 const temporary = await mkdtemp(path.join(tmpdir(), 'wikihack-ui-'));
@@ -18,7 +19,7 @@ const engine = process.env.BROWSER || 'firefox';
 if (!['firefox', 'chromium', 'webkit'].includes(engine)) throw new Error('BROWSER must be firefox, chromium, or webkit.');
 try {
   await mkdir(website);
-  for (const item of ['index.html', 'style.css', 'src', 'images']) await cp(item, path.join(website, item), { recursive: true });
+  for (const item of ['index.html', 'site.webmanifest', 'style.css', 'src', 'images']) await cp(item, path.join(website, item), { recursive: true });
   await exec(process.env.PYTHON || 'python3', ['-c', `
 import sys,time
 from pipeline.store import *
@@ -26,8 +27,8 @@ from pipeline.static_export import export_static
 db=connect(sys.argv[1]);now=int(time.time())
 with db:
  for i in range(30):
-  topic='Astronomy' if i%2 else 'Programming languages'
-  title=('Planet ' if i%2 else 'Programming language ')+str(i)
+  topic=['Programming languages','Astronomy','Mathematics'][i%3]
+  title=['Programming language ','Planet ','Algebra '][i%3]+str(i)
   url='https://en.wikipedia.org/wiki/'+title.replace(' ','_')
   ingest(db,[{'id':i*2+1,'type':'story','title':title,'by':'fixture-user'+str(i),'time':now-1000,'url':url}])
   a=wiki_url(url)
@@ -139,6 +140,7 @@ db.close()
   await page.locator('.mention-label').first().waitFor();
   await page.locator('.article-card .read-more').first().waitFor();
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Math', 'Computer Science', 'Physics']);
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 0, 0)');
   const first = page.locator('.article-card').filter({ has: page.locator('.read-more') }).first();
@@ -237,16 +239,20 @@ db.close()
   assert.equal(await page.locator(`.article-card[data-id="${seenId}"]`).count(), 0);
   // Rising data is also fetched for FYP, so tab switching can use the cache.
   // FeedSession tests separately hold delayed responses to verify race handling.
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Top', 'Rising']);
   await page.getByRole('tab', { name: 'Rising', exact: true }).click();
   await page.getByRole('tab', { name: 'Top', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
   assert.equal(await page.getByRole('tab', { name: 'Top', exact: true }).getAttribute('aria-selected'), 'true');
-  for (const tab of ['Rising', 'Top', 'For you']) {
+  for (const tab of ['Rising', 'Top']) {
     await page.getByRole('tab', { name: tab, exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
     assert.equal(await page.getByRole('tab', { name: tab, exact: true }).getAttribute('aria-selected'), 'true');
     assert.equal(await page.locator(`.article-card[data-id="${seenId}"]`).count(), 0);
   }
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
   await page.evaluate(() => scrollTo(0, 0));
   const refreshed = page.waitForResponse(r => r.url().endsWith('/data/catalog/manifest.json'));
   await page.evaluate(() => {
@@ -266,7 +272,7 @@ db.close()
   assert.ok(await page.locator('dialog a[href*="news.ycombinator.com/item?id="]').count() >= 2);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('dialog').evaluate(d => d.open), false);
-  await page.getByRole('button', { name: 'Explore', exact: true }).click();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search articles' }).fill('Programming');
   await page.locator('.article-card').first().waitFor();
   for (const title of await page.locator('.article-title h2').allTextContents()) assert.ok(title.includes('Programming'));
@@ -275,10 +281,49 @@ db.close()
   assert.equal(await shortPost.locator('.article-extract').textContent(), 'Short first paragraph.');
   assert.equal(await shortPost.locator('.read-more').count(), 0, 'Short paragraphs have no expansion control');
   }
-  await page.getByRole('button', { name: 'Home', exact: true }).click();
   await page.getByRole('tab', { name: 'Top', exact: true }).click();
-  await page.getByRole('tab', { name: 'Top', exact: true }).press('ArrowLeft');
+  assert.equal(await page.getByRole('searchbox', { name: 'Search articles' }).inputValue(), '');
+  await page.getByRole('tab', { name: 'Top', exact: true }).press('ArrowRight');
+  assert.equal(await page.getByRole('tab', { name: 'Rising', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
+  const mathRequested = Promise.withResolvers(), releaseMath = Promise.withResolvers();
+  const mathShard = `**/search/${bucket('ma', 256)}.json`;
+  await page.route(mathShard, async route => { mathRequested.resolve(); await releaseMath.promise; await route.fallback(); });
+  await page.getByRole('tab', { name: 'Math', exact: true }).click();
+  await mathRequested.promise;
+  assert.equal(await page.locator('.article-card').count(), 0, 'A new topic never flashes unrelated posts');
+  await page.getByRole('tab', { name: 'Physics', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
+  assert.ok((await page.locator('.article-title h2').allTextContents()).every(title => title.startsWith('Planet ')));
+  const mathResponse = page.waitForResponse(response => response.url().endsWith(`/search/${bucket('ma', 256)}.json`));
+  releaseMath.resolve(); await mathResponse;
+  assert.equal(await page.getByRole('tab', { name: 'Physics', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.unroute(mathShard);
+  for (const [tab, prefix] of [['Math', 'Algebra '], ['Computer Science', 'Programming language '], ['Physics', 'Planet ']]) {
+    await page.getByRole('tab', { name: tab, exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
+    const titles = await page.locator('.article-title h2').allTextContents();
+    assert.ok(titles.length > 0, `${tab} finds articles from the full archive`);
+    assert.ok(titles.every(title => title.startsWith(prefix)), `${tab} contains only its subject`);
+    assert.equal(await page.locator(`.article-card[data-id="${seenId}"]`).count(), 0);
+  }
+  await page.getByRole('tab', { name: 'Math', exact: true }).click();
+  const topicPost = page.locator('.article-card').filter({ has: page.getByRole('button', { name: 'Like article', exact: true }) }).first();
+  const topicId = await topicPost.getAttribute('data-id');
+  await topicPost.getByRole('button', { name: 'Like article', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
+  assert.equal(await page.locator(`[data-id="${topicId}"]`).getByRole('button', { name: 'Unlike article', exact: true }).count(), 1);
+  await mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/math-mobile-feed.png' });
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  assert.equal(await page.getByRole('tab', { name: 'Rising', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.screenshot({ path: 'test-results/search-rankings.png' });
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  assert.equal(await page.getByRole('tab', { name: 'Math', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.locator(`[data-id="${topicId}"]`).getByRole('button', { name: 'Mark as seen', exact: true }).click();
+  await page.getByRole('tab', { name: 'For you', exact: true }).click();
+  assert.equal(await page.locator(`[data-id="${topicId}"]`).count(), 0, 'Topic feedback applies to the main For you feed');
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/dark-mobile-feed.png' });
   for (const width of [320, 390, 1440]) {
@@ -286,12 +331,16 @@ db.close()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `No overflow at ${width}px`);
     assert.ok((await page.locator('.phone-shell').boundingBox()).width <= 600);
     await checkActionAlignment();
+    await page.getByRole('tab', { name: 'Physics', exact: true }).press('End');
+    assert.equal(await page.getByRole('tab', { name: 'Physics', exact: true }).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.getByRole('tab', { name: 'Physics', exact: true }).press('Home');
   }
   assert.deepEqual(errors, []);
   assert.ok(requests.some(url => url.includes('/search/')));
   assert.ok(requests.some(url => url.includes('/context/')));
   assert.ok(!requests.some(url => url.includes('/api/')));
-  console.log(`PASS (${engine}): dark For you, paragraph expansion/collapse and caching, whole-post Wikipedia links, aligned actions, image placement, hearts, persistent feedback, dropdown dismissal/Undo, seen state, pull-to-refresh, tab isolation, static archive context/search at a project subpath, responsive layout.`);
+  console.log(`PASS (${engine}): personalized topic lists, Search rankings, delayed topic responses, shared feedback, dark For you, reading, actions, pull-to-refresh, archive context/search and responsive layout.`);
 } finally {
   await browser?.close();
   await rm(temporary, { recursive: true, force: true });

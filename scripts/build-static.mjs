@@ -23,7 +23,7 @@ if (manifest.kind !== 'wikihack-static' || !manifest.articleCount) throw new Err
 const destination = path.join(root, 'dist');
 await rm(destination, { recursive: true, force: true });
 await mkdir(destination, { recursive: true });
-for (const item of ['index.html', 'style.css', 'src', 'images', 'data']) await cp(path.join(root, item), path.join(destination, item), { recursive: true });
+for (const item of ['index.html', 'site.webmanifest', 'style.css', 'src', 'images', 'data']) await cp(path.join(root, item), path.join(destination, item), { recursive: true });
 await writeFile(path.join(destination, '.nojekyll'), '');
 let bytes = 0, count = 0;
 async function measure(directory) {

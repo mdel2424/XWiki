@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const defaultRoot = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 export function createPreviewServer({ directory = process.env.STATIC_DIR || defaultRoot, basePath = '' } = {}) {
   const root = path.resolve(directory);
   const prefix = basePath.replace(/\/$/, '');

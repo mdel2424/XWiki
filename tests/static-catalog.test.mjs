@@ -5,7 +5,8 @@ import { promisify } from 'node:util';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { StaticCatalog } from '../src/static-catalog.js';
+import { StaticCatalog, bucket, searchTerms } from '../src/static-catalog.js';
+import { matchesTopic } from '../src/topics.js';
 import { recommend, emptyProfile } from '../src/recommendations.js';
 const exec = promisify(execFile);
 
@@ -56,6 +57,57 @@ db.close()
     await catalog.article('en:Earth', { cursor: 1, limit: 4 });
     assert.equal(requests.filter(url => url.includes('/context/')).length, commentsBefore);
   } finally { await rm(temporary, { recursive: true, force: true }); }
+});
+
+test('topic feeds paginate the full archive with personal discovery lanes and exclude incidental matches', async () => {
+  const count = 1200;
+  const categories = ['Algebra', 'Computer science', 'Quantum physics', 'History'];
+  const all = Array.from({ length: count }, (_, i) => ({ id: `en:Topic${i}`, title: `Topic ${i}`, _index: i,
+    mentions: [], categories: [categories[i % 4]],
+    extract: 'An incidental mention of mathematics, computer programming and quantum physics.',
+    metrics: { distinctLinkers: 10, mentionCount: count - i } }));
+  const postings = Array.from({ length: 256 }, () => ({}));
+  for (const article of all) for (const term of searchTerms(`${article.title} ${article.categories.join(' ')} ${article.extract}`)) {
+    (postings[bucket(term.slice(0, 2), 256)][term] ||= []).push(article._index);
+  }
+  for (const weighted of [false, true]) {
+    const manifest = { kind: 'wikihack-static', version: 1, generation: 'v-topics', articleCount: count,
+      articleShardSize: 256, rankShardSize: 512, risingCount: count, searchBuckets: 256,
+      ...(weighted ? { discoveryWeights: 'discovery-weights.json' } : {}) };
+    const catalog = new StaticCatalog({ base: new URL('https://example.test/catalog/'), fetcher: async raw => {
+      const file = new URL(raw).pathname;
+      const shard = Number(file.split('/').at(-1).split('.')[0]);
+      let value;
+      if (file.endsWith('/manifest.json')) value = manifest;
+      else if (file.endsWith('/discovery-weights.json')) value = all.map(() => 10);
+      else if (file.includes('/search/')) value = postings[shard];
+      else if (file.includes('/articles/')) value = all.slice(shard * 256, shard * 256 + 256);
+      else if (file.includes('/rising/')) value = all.map(a => a._index).reverse().slice(shard * 512, shard * 512 + 512);
+      else throw new Error(`Unexpected topic request: ${file}`);
+      return { ok: true, json: async () => value };
+    } });
+    await catalog.open();
+    for (const [mode, category] of [['math', 0], ['computer-science', 1], ['physics', 2]]) {
+      const exclude = [`en:Topic${category}`], visited = new Set(exclude);
+      let cursor = 0, pages = 0;
+      do {
+        const result = await catalog.feed({ mode, cursor, mix: 42, exclude: [...visited] });
+        assert.ok(result.articles.every(a => matchesTopic(a, mode)), `${mode} is subject-specific`);
+        assert.ok(result.articles.every(a => !visited.has(a.id)), `${mode} excludes hidden and previous posts`);
+        if (pages === 0) {
+          const ranked = recommend(result.articles, emptyProfile(), { seed: 42, sources: result.sources });
+          assert.equal(ranked.length, 60);
+          assert.deepEqual(Object.fromEntries(['random', 'top', 'rising'].map(lane =>
+            [lane, ranked.filter(a => a.recommendation.lane === lane).length])), { random: 48, top: 6, rising: 6 });
+        }
+        result.articles.forEach(a => visited.add(a.id));
+        if (result.nextCursor) assert.ok(result.nextCursor.random > (cursor.random || 0));
+        cursor = result.nextCursor;
+        assert.ok(++pages < 20, 'Topic pagination finishes');
+      } while (cursor);
+      assert.equal(visited.size, count / 4, `${mode} reaches every relevant article, even beyond the first global page`);
+    }
+  }
 });
 
 test('FYP samples the full archive, shuffles featured ranks, and keeps 8:1:1 across pages', async () => {

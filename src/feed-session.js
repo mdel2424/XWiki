@@ -1,4 +1,6 @@
-export const FEED_MODES = ['for-you', 'top', 'rising'];
+import { HOME_FEEDS, RANKED_FEEDS } from './topics.js';
+
+export const FEED_MODES = [...HOME_FEEDS, ...RANKED_FEEDS].map(feed => feed.id);
 
 // Each tab owns its page/cursor. Responses cannot commit over newer requests.
 export class FeedSession {

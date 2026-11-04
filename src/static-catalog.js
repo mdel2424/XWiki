@@ -1,4 +1,5 @@
 import { discoveryOrder } from './discovery.js';
+import { matchesTopic, topicFor, isPersonalized } from './topics.js';
 
 const STOP = new Set('a an the and of to in on for with from by is are was were it its as at that this or not be'.split(' '));
 export function searchTerms(text = '') {
@@ -21,6 +22,7 @@ function sample(count, start, size, seed) {
 export class StaticCatalog {
   constructor({ base = new URL('../data/catalog/', import.meta.url), fetcher = fetch } = {}) {
     this.base = new URL(base); this.fetcher = fetcher; this.manifest = null; this.cache = new Map(); this.discovery = null;
+    this.topicPools = new Map();
   }
   async read(path, { fresh = false } = {}) {
     const url = new URL(path, this.base);
@@ -43,7 +45,7 @@ export class StaticCatalog {
         !/^v-[a-z0-9]+$/.test(manifest.generation)) throw new Error('Static catalogue is missing or unsupported.');
     if (this.manifest?.generation !== manifest.generation || this.manifest?.risingPath !== manifest.risingPath ||
         this.manifest?.discoveryWeights !== manifest.discoveryWeights) {
-      this.cache.clear(); this.discovery = null;
+      this.cache.clear(); this.discovery = null; this.topicPools.clear();
     }
     this.manifest = manifest;
     return manifest;
@@ -106,8 +108,18 @@ export class StaticCatalog {
     const ids = query.trim() ? await this.matches(query) : Array.from({ length: this.manifest.articleCount }, (_, i) => i);
     return { articles: await this.cards(ids.slice(cursor, cursor + limit)), nextCursor: cursor + limit < ids.length ? cursor + limit : null };
   }
+  async topicPool(topic) {
+    if (!this.topicPools.has(topic.id)) {
+      // Search the full catalogue, then verify the subject on every returned card.
+      const query = [...new Set(topic.terms.map(term => term.split(' ')[0]))].join(' ');
+      const pending = this.matches(query, { any: true }).then(indices => indices.sort((a, b) => a - b))
+        .catch(error => { this.topicPools.delete(topic.id); throw error; });
+      this.topicPools.set(topic.id, pending);
+    }
+    return this.topicPools.get(topic.id);
+  }
   async feed({ mode = 'for-you', cursor = 0, limit = 60, mix = 0, exclude = [] } = {}) {
-    if (mode !== 'for-you') {
+    if (!isPersonalized(mode)) {
       const count = mode === 'rising' ? this.manifest.risingCount : this.manifest.articleCount;
       const ids = mode === 'rising' ? await this.ranks('rising', cursor, limit) :
         Array.from({ length: Math.max(0, Math.min(limit, count - cursor)) }, (_, i) => cursor + i);
@@ -118,19 +130,38 @@ export class StaticCatalog {
     const size = Math.max(10, Math.ceil(limit / 10) * 10);
     const positions = typeof cursor === 'object' ? { ...cursor } : { random: 0, rising: 0, top: 0 };
     const used = new Set(exclude), sources = { random: [], rising: [], top: [] }, articles = [];
+    const topic = topicFor(mode);
+    let pools;
+    if (topic) {
+      const candidates = await this.topicPool(topic), allowed = new Set(candidates);
+      const [weighted, rising] = await Promise.all([
+        this.discoveryOrder(mix), this.ranks('rising', 0, this.manifest.risingCount),
+      ]);
+      pools = { top: candidates.slice(0, 1000), rising: rising.filter(id => allowed.has(id)).slice(0, 1000),
+        random: weighted ? Array.from(weighted).filter(id => allowed.has(id)) : candidates };
+    }
     const take = async (lane, wanted) => {
       // Featured lanes sample the leading 1,000; random spans the entire archive.
-      const count = lane === 'random' ? this.manifest.articleCount :
+      const count = pools ? pools[lane].length : lane === 'random' ? this.manifest.articleCount :
         Math.min(1000, lane === 'rising' ? this.manifest.risingCount : this.manifest.articleCount);
       while (sources[lane].length < wanted && positions[lane] < count) {
-        const weighted = lane === 'random' ? await this.discoveryOrder(mix) : null;
-        const draw = weighted ? Array.from(weighted.subarray(positions[lane], positions[lane] + wanted - sources[lane].length)) :
-          sample(count, positions[lane], wanted - sources[lane].length, `${lane}:${mix}`);
+        const remaining = wanted - sources[lane].length;
+        let draw, indices;
+        if (pools) {
+          draw = lane === 'random' && this.manifest.discoveryWeights ?
+            Array.from({ length: Math.min(remaining, count - positions[lane]) }, (_, i) => positions[lane] + i) :
+            sample(count, positions[lane], remaining, `${lane}:${mix}`);
+          indices = draw.map(position => pools[lane][position]);
+        } else {
+          const weighted = lane === 'random' ? await this.discoveryOrder(mix) : null;
+          draw = weighted ? Array.from(weighted.subarray(positions[lane], positions[lane] + remaining)) :
+            sample(count, positions[lane], remaining, `${lane}:${mix}`);
+          indices = lane === 'rising' ? (await Promise.all(draw.map(async position =>
+            (await this.ranks('rising', position, 1))[0]))).filter(i => i != null) : draw;
+        }
         positions[lane] += draw.length;
-        const indices = lane === 'rising' ? (await Promise.all(draw.map(async position =>
-          (await this.ranks('rising', position, 1))[0]))).filter(i => i != null) : draw;
         for (const article of await this.cards(indices)) {
-          if (used.has(article.id)) continue;
+          if (used.has(article.id) || !matchesTopic(article, mode)) continue;
           used.add(article.id); sources[lane].push(article.id); articles.push(article);
         }
       }
@@ -138,7 +169,7 @@ export class StaticCatalog {
     await take('top', size / 10);
     await take('rising', size / 10);
     await take('random', size * .8);
-    return { articles, sources, nextCursor: positions.random < this.manifest.articleCount ? positions : null, mode };
+    return { articles, sources, nextCursor: positions.random < (pools?.random.length ?? this.manifest.articleCount) ? positions : null, mode };
   }
 
   async article(id, { cursor = 0, limit = 50 } = {}) {
