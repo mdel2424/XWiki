@@ -114,6 +114,8 @@ db.close()
           assert.equal(await startup.locator('.article-card').count(), 0, 'No generic/cached posts during startup');
           assert.match(await startup.locator('.source-note').textContent(), /Loading your feed/);
           assert.equal(await startup.locator('.end-note').count(), 0);
+          assert.equal(await startup.locator('.loader:visible').count(), 1, 'Initial load shows only one spinner');
+          assert.equal(await startup.locator('#load-area').textContent(), '', 'No duplicate footer loading control');
         };
         await checkLoading();
         manifest.resolve();
@@ -146,7 +148,7 @@ db.close()
   await page.locator('.mention-label').first().waitFor();
   await page.locator('.article-card .read-more').first().waitFor();
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Math', 'Computer Science', 'Physics']);
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Computer Science', 'Physics', 'History']);
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 0, 0)');
   const first = page.locator('.article-card').filter({ has: page.locator('.read-more') }).first();
@@ -261,7 +263,7 @@ db.close()
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
   await page.evaluate(() => scrollTo(0, 0));
   const refreshed = page.waitForResponse(r => r.url().endsWith('/data/catalog/manifest.json'));
-  await page.evaluate(() => {
+  const pullLoading = await page.evaluate(() => {
     const target = document.querySelector('#timeline');
     const dispatch = (type, y) => {
       const event = new Event(type, { bubbles: true, cancelable: true });
@@ -269,7 +271,10 @@ db.close()
       target.dispatchEvent(event);
     };
     dispatch('touchstart', 150); dispatch('touchmove', 320); dispatch('touchend', null);
+    return { spinners: document.querySelectorAll('.loader').length,
+      busy: document.querySelector('#timeline').getAttribute('aria-busy') };
   });
+  assert.deepEqual(pullLoading, { spinners: 1, busy: 'true' }, 'Pull-to-refresh owns the single loading indicator');
   await refreshed;
   await page.waitForFunction(() => document.querySelector('#pull-refresh').dataset.state === 'idle');
   assert.equal(await page.locator(`.article-card[data-id="${seenId}"]`).count(), 0);
@@ -294,11 +299,15 @@ db.close()
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
   const mathRequested = Promise.withResolvers(), releaseMath = Promise.withResolvers();
+  await page.getByRole('button', { name: 'Browse topics', exact: true }).click();
+  await page.getByRole('button', { name: 'Pin Math', exact: true }).click();
+  await page.keyboard.press('Escape');
   const mathShard = `**/search/${bucket('ma', 256)}.json`;
   await page.route(mathShard, async route => { mathRequested.resolve(); await releaseMath.promise; await route.fallback(); });
   await page.getByRole('tab', { name: 'Math', exact: true }).click();
   await mathRequested.promise;
   assert.equal(await page.locator('.article-card').count(), 0, 'A new topic never flashes unrelated posts');
+  assert.equal(await page.locator('.loader:visible').count(), 1, 'Topic loading shows only one spinner');
   await page.getByRole('tab', { name: 'Physics', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
   assert.ok((await page.locator('.article-title h2').allTextContents()).every(title => title.startsWith('Planet ')));
@@ -338,9 +347,9 @@ db.close()
     assert.ok((await page.locator('.phone-shell').boundingBox()).width <= 600);
     await checkActionAlignment();
     await page.getByRole('tab', { name: 'Physics', exact: true }).press('End');
-    assert.equal(await page.getByRole('tab', { name: 'Physics', exact: true }).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.getByRole('tab', { name: 'Math', exact: true }).getAttribute('aria-selected'), 'true');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    await page.getByRole('tab', { name: 'Physics', exact: true }).press('Home');
+    await page.getByRole('tab', { name: 'Math', exact: true }).press('Home');
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Browse topics', exact: true }).click();
@@ -350,7 +359,8 @@ db.close()
     ['Psychology', 'Cognitive psychology '], ['Economics', 'Macroeconomics '],
     ['Engineering', 'Electronic engineering '], ['Arts & Culture', 'Visual art ']];
   for (const [topic] of newTopics) {
-    await page.getByRole('button', { name: `Pin ${topic}`, exact: true }).click();
+    const pin = page.getByRole('button', { name: `Pin ${topic}`, exact: true });
+    if (await pin.count()) await pin.click();
     assert.equal(await page.getByRole('button', { name: `Unpin ${topic}`, exact: true }).getAttribute('aria-pressed'), 'true');
   }
   await page.keyboard.press('Escape');

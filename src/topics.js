@@ -36,7 +36,7 @@ export const topicFor = mode => TOPICS.find(topic => topic.id === mode);
 export const isPersonalized = mode => HOME_FEEDS.some(feed => feed.id === mode);
 
 export const EXACT_TOPIC_TERMS = ['art', 'math'];
-export const DEFAULT_PINS = ['math', 'computer-science', 'physics'];
+export const DEFAULT_PINS = ['computer-science', 'physics', 'history'];
 export function normalizePins(value) {
   return Array.isArray(value) ? [...new Set(value.filter(id => topicFor(id)))] : [...DEFAULT_PINS];
 }

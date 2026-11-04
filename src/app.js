@@ -38,6 +38,7 @@ const liked = article => Boolean(state.profile.likes[article.id]);
 const isHidden = article => hidden(article, state.profile);
 const isSearching = () => state.page === 'explore' && Boolean(state.query.trim());
 const isFeedPage = () => state.page === 'home' || state.page === 'explore' && !isSearching();
+const pullIsRefreshing = () => $('#pull-refresh').dataset.state === 'refreshing';
 const metrics = article => ({
   people: article.metrics?.distinctLinkers ?? uniqueAuthors(article),
   count: article.metrics?.mentionCount ?? article.mentions?.length ?? 0,
@@ -89,12 +90,12 @@ function feedTabs(items, label) {
   }).join('')}</div>`;
 }
 function homeTabBar() {
-  return `<div class="home-feed-nav"><div class="home-tabs-host">${feedTabs(homeFeeds(state.pins, state.homeMode), 'Home feeds')}</div><button class="topics-button" data-action="topics" aria-label="Browse topics" aria-haspopup="dialog" title="Browse and pin topics">${icon('lists')}<span>Topics</span></button></div>`;
+  return `<div class="home-tabs-host">${feedTabs(homeFeeds(state.pins, state.homeMode), 'Home feeds')}</div>`;
 }
 function browseTopics() {
-  showSheet('Topics', `<p class="topics-intro">Open any topic. Pin favorites to keep them on Home.</p><p id="pin-status" class="pin-status" role="status" aria-live="polite">${state.pins.length} topics pinned</p><div class="topic-list">${TOPICS.map(topic => {
+  showSheet('Topics', `<p class="topics-intro">Pin your favorites to your Home timeline.</p><p id="pin-status" class="sr-only" role="status" aria-live="polite">${state.pins.length} topics pinned</p><div class="topic-list">${TOPICS.map(topic => {
     const pinned = state.pins.includes(topic.id);
-    return `<div class="topic-row"><button class="topic-open" data-action="open-topic" data-topic="${topic.id}"><strong>${esc(topic.label)}</strong><span>${esc(topic.description)}</span></button><button class="topic-pin ${pinned ? 'pinned' : ''}" data-action="pin-topic" data-topic="${topic.id}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${esc(topic.label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin from' : 'Pin to'} Home">${icon('pin')}</button></div>`;
+    return `<div class="topic-row"><button class="topic-open" data-action="open-topic" data-topic="${topic.id}"><span class="topic-symbol" aria-hidden="true">${icon('hash')}</span><span class="topic-copy"><strong>${esc(topic.label)}</strong><span>${esc(topic.description)}</span></span></button><button class="topic-pin ${pinned ? 'pinned' : ''}" data-action="pin-topic" data-topic="${topic.id}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${esc(topic.label)}" aria-pressed="${pinned}" title="${pinned ? 'Unpin from' : 'Pin to'} Home">${icon('pin')}</button></div>`;
   }).join('')}</div>`);
   $('#sheet').scrollTop = 0;
 }
@@ -120,7 +121,7 @@ function shell() {
   $('#app').innerHTML = `<main class="phone-shell">
     <header class="app-header"><div class="topbar"><button class="settings-button" data-nav="settings" aria-label="Settings">${icon('settings')}</button>
       <button class="header-brand" data-nav="home" aria-label="XWiki home">XWiki</button>
-      <span class="header-spacer" aria-hidden="true"></span></div>
+      ${state.page === 'home' ? `<button class="topics-button" data-action="topics" aria-label="Browse topics" aria-haspopup="dialog" title="Topics">${icon('timeline-settings')}</button>` : '<span class="header-spacer" aria-hidden="true"></span>'}</div>
       ${state.page === 'home' ? homeTabBar() : state.page === 'explore' ? `<h1 class="sr-only">Search</h1><div class="search-wrap"><label class="search-field">${icon('search')}<input id="search" type="search" aria-label="Search articles" placeholder="Search Wikipedia articles on HN" value="${esc(state.query)}" autocomplete="off"></label></div>${feedTabs(RANKED_FEEDS, 'Archive rankings')}` : `<div class="page-heading"><h1>${({ likes: 'Likes', settings: 'Settings' })[state.page]}</h1></div>`}
     </header><div id="page-content"></div>
     <nav class="bottom-nav" aria-label="Navigation">${nav('home', 'Home', 'home')}${nav('explore', 'Search', 'search')}${nav('likes', 'Likes', 'heart')}${nav('settings', 'Settings', 'settings')}</nav>
@@ -130,7 +131,7 @@ function shell() {
 function sourceNote() {
   const text = !state.ready ? 'Loading your feed…' : !state.articles.length ? (state.loading ? 'Connecting · preview collection' : 'Offline preview · no invented HN activity') :
     state.backend === 'static' ? `${state.archive?.articles?.toLocaleString() || 'Archive'} articles · ${topicFor(state.mode) ? `Personalized · ${topicFor(state.mode).label}` : 'Personalized for you'}` : 'Static catalogue not built';
-  return `<button class="source-note" data-action="sources"><span class="status-dot ${state.loading ? 'pulse' : ''}"></span>${esc(text)}${icon('info')}</button>`;
+  return `<button class="source-note" data-action="sources"><span class="status-dot"></span>${esc(text)}${icon('info')}</button>`;
 }
 function renderPage() {
   if (state.page === 'settings') { renderSettings(); return; }
@@ -165,7 +166,7 @@ function card(article, index) {
 function renderTimeline() {
   if (!$('#timeline')) return;
   const articles = viewArticles();
-  const waiting = isFeedPage() ? state.loading || !state.ready : isSearching() && state.searchLoading;
+  const waiting = isFeedPage() ? state.loading || !state.ready || pullIsRefreshing() : isSearching() && state.searchLoading;
   $('#timeline').setAttribute('aria-busy', String(Boolean(waiting)));
   $('#timeline').setAttribute('role', isFeedPage() ? 'tabpanel' : 'region');
   if (isFeedPage()) {
@@ -183,15 +184,20 @@ function renderTimeline() {
   const topic = state.page === 'home' && topicFor(state.mode);
   const emptyTitle = topic ? `No ${topic.label} posts yet.` : state.page === 'likes' ? 'Give your curiosity a heart.' : 'Nothing here yet.';
   const emptyText = topic ? 'Try another topic or refresh this list.' : state.page === 'likes' ? 'Like an article to find more posts with related categories.' : 'Try another search or load more articles.';
-  $('#timeline').innerHTML = articles.length ? articles.slice(0, state.visible).map(card).join('') : waiting ? '<div class="feed-loading" role="status"><span class="loader"></span><span>Loading posts…</span></div>' : `<div class="empty-state">${icon(state.page === 'likes' ? 'heart' : 'search')}<h2>${esc(emptyTitle)}</h2><p>${esc(emptyText)}</p></div>`;
+  $('#timeline').innerHTML = articles.length ? articles.slice(0, state.visible).map(card).join('') : waiting ? (pullIsRefreshing() ? '' : '<div class="feed-loading" role="status"><span class="loader" aria-hidden="true"></span><span>Loading posts…</span></div>') : `<div class="empty-state">${icon(state.page === 'likes' ? 'heart' : 'search')}<h2>${esc(emptyTitle)}</h2><p>${esc(emptyText)}</p></div>`;
   renderMore(articles); hydrate(articles.slice(0, state.visible)); hydrateParagraphs(articles.slice(0, state.visible));
 }
 function renderMore(articles = viewArticles()) {
   if (!$('#load-area')) return;
-  const loading = isSearching() ? state.searchLoading : state.loading;
-  const more = articles.length > state.visible || isSearching() && state.searchCursor !== null || isFeedPage() && (state.backend === 'static' && feeds.tab().cursor !== null);
-  $('#load-area').innerHTML = more ? `<button class="load-more" data-action="more" ${loading ? 'disabled' : ''}>${loading ? '<span class="loader"></span>' : state.offline ? 'Retry connection' : 'Show more posts'}</button>` : articles.length ? '<p class="end-note">You’re caught up with this collection.</p>' : '';
+  const loading = isSearching() ? state.searchLoading : isFeedPage() && (state.loading || !state.ready);
   observer?.disconnect();
+  // Initial loads use the timeline spinner; pull-to-refresh owns its indicator.
+  if (pullIsRefreshing() || loading && !articles.length) {
+    $('#load-area').replaceChildren();
+    return;
+  }
+  const more = articles.length > state.visible || isSearching() && state.searchCursor !== null || isFeedPage() && (state.backend === 'static' && feeds.tab().cursor !== null);
+  $('#load-area').innerHTML = more ? `<button class="load-more" data-action="more" ${loading ? 'disabled' : ''}>${loading ? '<span class="loader" aria-hidden="true"></span><span class="sr-only">Loading more posts…</span>' : state.offline ? 'Retry connection' : 'Show more posts'}</button>` : articles.length ? '<p class="end-note">You’re caught up with this collection.</p>' : '';
   if (more && state.ready && !loading && !state.offline && (articles.length > state.visible || isSearching() || !state.paused)) {
     observer = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) loadMore(); }, { rootMargin: '250px' });
     observer.observe($('.load-more'));
@@ -489,15 +495,17 @@ attachPullRefresh({
   refresh: refreshFeed,
   onState: (phase, distance) => {
     const indicator = $('#pull-refresh');
+    const wasRefreshing = pullIsRefreshing();
     indicator.dataset.state = phase;
     indicator.style.setProperty('--pull-distance', `${distance}px`);
-    indicator.innerHTML = phase === 'idle' ? '' : `${phase === 'refreshing' ? '<span class="loader"></span>' : icon('arrow', 'pull-arrow')}<span>${phase === 'refreshing' ? 'Refreshing…' : phase === 'armed' ? 'Release to refresh' : 'Pull down to refresh'}</span>`;
+    indicator.innerHTML = phase === 'idle' ? '' : `${phase === 'refreshing' ? '<span class="loader" aria-hidden="true"></span>' : icon('arrow', 'pull-arrow')}<span>${phase === 'refreshing' ? 'Refreshing…' : phase === 'armed' ? 'Release to refresh' : 'Pull down to refresh'}</span>`;
+    if (phase === 'refreshing' || wasRefreshing) renderTimeline();
   },
 });
 
 async function searchCatalogue(query, cursor = 0) {
   const ticket = ++searchTicket;
-  state.searchLoading = true; renderMore();
+  state.searchLoading = true; renderTimeline();
   try {
     const response = await catalog.search(query, { cursor });
     state.articles = mergeArticles(state.articles, response.articles);

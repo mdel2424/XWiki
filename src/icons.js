@@ -1,5 +1,7 @@
 const paths = {
-  pin: '<path d="m16 3 5 5-4 2-3 5-2-2-5 5-1-1 5-5-2-2 5-3z"/><path d="m6 18-3 3"/>',
+  pin: '<path d="M8 3h8v2h-1v5l3 4v2H6v-2l3-4V5H8Z"/><path d="M12 16v6"/>',
+  'timeline-settings': '<path d="M3 7h9m4 0h5M3 17h3m4 0h11"/><circle cx="14" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+  hash: '<path d="m10 3-4 18M18 3l-4 18M4 8h17M2 16h17"/>',
   lists: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/>',
   more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
