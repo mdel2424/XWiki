@@ -24,7 +24,7 @@ test('topic lists own their cursors and cannot replace another selected list', a
   const feeds = new FeedSession(), pending = deferred();
   feeds.select('math');
   const math = feeds.load(() => pending.promise);
-  feeds.select('physics');
+  feeds.select('science');
   await feeds.load(async () => page('quantum', { random: 60, top: 6, rising: 6 }));
   pending.resolve(page('algebra', { random: 70, top: 8, rising: 9 }));
   assert.equal((await math).current, false);
@@ -35,7 +35,7 @@ test('topic lists own their cursors and cannot replace another selected list', a
     return page('geometry');
   });
   assert.deepEqual(feeds.tab().ids, ['algebra', 'geometry']);
-  assert.equal(feeds.tab('computer-science').ids, null);
+  assert.equal(feeds.tab('computing').ids, null);
   assert.equal(feeds.tab('for-you').ids, null);
 });
 test('rapid tab switches cannot commit an old response over the active tab', async () => {

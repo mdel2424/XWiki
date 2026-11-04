@@ -7,7 +7,6 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { chromium, firefox, webkit } from 'playwright';
 import { createPreviewServer } from '../scripts/serve.mjs';
-import { bucket } from '../src/static-catalog.js';
 
 const exec = promisify(execFile);
 const temporary = await mkdtemp(path.join(tmpdir(), 'wikihack-ui-'));
@@ -27,18 +26,27 @@ from pipeline.static_export import export_static
 db=connect(sys.argv[1]);now=int(time.time())
 with db:
  for i in range(30):
-  topic=['Programming languages','Astronomy','Mathematics'][i%3]
-  title=['Programming language ','Planet ','Algebra '][i%3]+str(i)
+  topic=['Programming languages','Physics','Mathematics'][i%3]
+  model=['STEM.Computing','STEM.Physics','STEM.Mathematics'][i%3]
+  title=['Programming language ','Quantum field ','Algebra '][i%3]+str(i)
   url='https://en.wikipedia.org/wiki/'+title.replace(' ','_')
   ingest(db,[{'id':i*2+1,'type':'story','title':title,'by':'fixture-user'+str(i),'time':now-1000,'url':url}])
   a=wiki_url(url)
-  merge_metadata(db,a['id'],{**a,'extract':(topic+' is an interesting field of scientific discovery. ')*14,'description':topic,**({'firstParagraph':'Short first paragraph.'} if i==0 else {}),'categories':[topic],'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
- for j,topic in enumerate(['Ethics','Archaeology','Genetics','Cognitive psychology','Macroeconomics','Electronic engineering','Visual art']):
+  merge_metadata(db,a['id'],{**a,'extract':(topic+' is an interesting field of scientific discovery. ')*14,'description':topic,**({'firstParagraph':'Short first paragraph.'} if i==0 else {}),'categories':[topic],'topicPredictions':{model:0.9},'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
+ for j,(topic,model) in enumerate([
+  ('Ethics','Culture.Philosophy_and_religion'),('Archaeology','History_and_Society.History'),
+  ('Genetics','STEM.Biology'),('Cognitive psychology','History_and_Society.Society'),
+  ('Macroeconomics','History_and_Society.Business_and_economics'),('Electronic engineering','STEM.Engineering'),
+  ('Visual art','Culture.Visual_arts.Visual_arts*'),('Coastland','Geography.Geographical'),
+  ('Courts','History_and_Society.Politics_and_government'),('Memes','Culture.Internet_culture'),
+  ('Inventors','Culture.Biography.Biography*'),('Railways','History_and_Society.Transportation'),
+  ('Novels','Culture.Literature'),('Cinema','Culture.Media.Films'),('Nebulae','STEM.Space'),
+  ('Climate','STEM.Earth_and_environment'),('Cuisine','Culture.Food_and_drink'),('Running','Culture.Sports')]):
   for k in range(3):
    title=topic+' '+str(k);url='https://en.wikipedia.org/wiki/'+title.replace(' ','_')
    ingest(db,[{'id':1000+j*3+k,'type':'story','title':title,'by':'new-topic-user','time':now-1000,'url':url}])
    a=wiki_url(url)
-   merge_metadata(db,a['id'],{**a,'description':topic,'extract':(topic+' is a field of study. ')*14,'categories':[topic],'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
+   merge_metadata(db,a['id'],{**a,'description':topic,'extract':(topic+' is a field of study. ')*14,'categories':[topic],'topicPredictions':{model:0.9},'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
  resolve_threads(db);refresh_stats(db)
 export_static(db,sys.argv[2]+'/data/catalog')
 db.close()
@@ -148,7 +156,7 @@ db.close()
   await page.locator('.mention-label').first().waitFor();
   await page.locator('.article-card .read-more').first().waitFor();
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Computer Science', 'Physics', 'History']);
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Computing', 'Physics & Chemistry', 'History']);
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 0, 0)');
   const first = page.locator('.article-card').filter({ has: page.locator('.read-more') }).first();
@@ -284,7 +292,10 @@ db.close()
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('dialog').evaluate(d => d.open), false);
   await page.getByRole('button', { name: 'Search', exact: true }).click();
+  const searchLoaded = page.waitForResponse(response => /\/search\/\d+\.json$/.test(response.url()));
   await page.getByRole('searchbox', { name: 'Search articles' }).fill('Programming');
+  await searchLoaded;
+  await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
   await page.locator('.article-card').first().waitFor();
   for (const title of await page.locator('.article-title h2').allTextContents()) assert.ok(title.includes('Programming'));
   if (![seenId, dismissId].includes('en:Programming language 0')) {
@@ -300,22 +311,22 @@ db.close()
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
   const mathRequested = Promise.withResolvers(), releaseMath = Promise.withResolvers();
   await page.getByRole('button', { name: 'Browse topics', exact: true }).click();
-  await page.getByRole('button', { name: 'Pin Math', exact: true }).click();
+  await page.getByRole('button', { name: 'Pin Mathematics', exact: true }).click();
   await page.keyboard.press('Escape');
-  const mathShard = `**/search/${bucket('ma', 256)}.json`;
+  const mathShard = '**/topics-*.json';
   await page.route(mathShard, async route => { mathRequested.resolve(); await releaseMath.promise; await route.fallback(); });
-  await page.getByRole('tab', { name: 'Math', exact: true }).click();
+  await page.getByRole('tab', { name: 'Mathematics', exact: true }).click();
   await mathRequested.promise;
   assert.equal(await page.locator('.article-card').count(), 0, 'A new topic never flashes unrelated posts');
   assert.equal(await page.locator('.loader:visible').count(), 1, 'Topic loading shows only one spinner');
-  await page.getByRole('tab', { name: 'Physics', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
-  assert.ok((await page.locator('.article-title h2').allTextContents()).every(title => title.startsWith('Planet ')));
-  const mathResponse = page.waitForResponse(response => response.url().endsWith(`/search/${bucket('ma', 256)}.json`));
+  await page.getByRole('tab', { name: 'Physics & Chemistry', exact: true }).click();
+  assert.equal(await page.getByRole('tab', { name: 'Physics & Chemistry', exact: true }).getAttribute('aria-selected'), 'true');
+  const mathResponse = page.waitForResponse(response => /topics-[^/]+\.json$/.test(response.url()));
   releaseMath.resolve(); await mathResponse;
-  assert.equal(await page.getByRole('tab', { name: 'Physics', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
+  assert.ok((await page.locator('.article-title h2').allTextContents()).every(title => title.startsWith('Quantum field ')));
   await page.unroute(mathShard);
-  for (const [tab, prefix] of [['Math', 'Algebra '], ['Computer Science', 'Programming language '], ['Physics', 'Planet ']]) {
+  for (const [tab, prefix] of [['Mathematics', 'Algebra '], ['Computing', 'Programming language '], ['Physics & Chemistry', 'Quantum field ']]) {
     await page.getByRole('tab', { name: tab, exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
     const titles = await page.locator('.article-title h2').allTextContents();
@@ -323,7 +334,7 @@ db.close()
     assert.ok(titles.every(title => title.startsWith(prefix)), `${tab} contains only its subject`);
     assert.equal(await page.locator(`.article-card[data-id="${seenId}"]`).count(), 0);
   }
-  await page.getByRole('tab', { name: 'Math', exact: true }).click();
+  await page.getByRole('tab', { name: 'Mathematics', exact: true }).click();
   const topicPost = page.locator('.article-card').filter({ has: page.getByRole('button', { name: 'Like article', exact: true }) }).first();
   const topicId = await topicPost.getAttribute('data-id');
   await topicPost.getByRole('button', { name: 'Like article', exact: true }).click();
@@ -335,7 +346,7 @@ db.close()
   assert.equal(await page.getByRole('tab', { name: 'Rising', exact: true }).getAttribute('aria-selected'), 'true');
   await page.screenshot({ path: 'test-results/search-rankings.png' });
   await page.getByRole('button', { name: 'Home', exact: true }).click();
-  assert.equal(await page.getByRole('tab', { name: 'Math', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.getByRole('tab', { name: 'Mathematics', exact: true }).getAttribute('aria-selected'), 'true');
   await page.locator(`[data-id="${topicId}"]`).getByRole('button', { name: 'Mark as seen', exact: true }).click();
   await page.getByRole('tab', { name: 'For you', exact: true }).click();
   assert.equal(await page.locator(`[data-id="${topicId}"]`).count(), 0, 'Topic feedback applies to the main For you feed');
@@ -346,20 +357,24 @@ db.close()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `No overflow at ${width}px`);
     assert.ok((await page.locator('.phone-shell').boundingBox()).width <= 600);
     await checkActionAlignment();
-    await page.getByRole('tab', { name: 'Physics', exact: true }).press('End');
-    assert.equal(await page.getByRole('tab', { name: 'Math', exact: true }).getAttribute('aria-selected'), 'true');
+    await page.getByRole('tab', { name: 'Physics & Chemistry', exact: true }).press('End');
+    assert.equal(await page.getByRole('tab', { name: 'Mathematics', exact: true }).getAttribute('aria-selected'), 'true');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    await page.getByRole('tab', { name: 'Math', exact: true }).press('Home');
+    await page.getByRole('tab', { name: 'Mathematics', exact: true }).press('Home');
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Browse topics', exact: true }).click();
-  assert.equal(await page.locator('.topic-open').count(), 10);
-  assert.deepEqual(await page.locator('.topic-copy strong').allTextContents(),
-    ['Arts & Culture', 'Biology', 'Computer Science', 'Economics', 'Engineering', 'History', 'Math', 'Philosophy', 'Physics', 'Psychology']);
+  assert.equal(await page.locator('.topic-open').count(), 21);
+  const topicLabels = await page.locator('.topic-copy strong').evaluateAll(elements => elements.map(element => element.firstChild.textContent));
+  assert.deepEqual(topicLabels, [...topicLabels].sort((a, b) => a.localeCompare(b, 'en')));
+  assert.ok(await page.locator('.topic-count').count() === 21, 'Topic counts come from the prediction index');
   await page.screenshot({ path: 'test-results/topics-picker.png' });
-  const newTopics = [['Philosophy', 'Ethics '], ['History', 'Archaeology '], ['Biology', 'Genetics '],
-    ['Psychology', 'Cognitive psychology '], ['Economics', 'Macroeconomics '],
-    ['Engineering', 'Electronic engineering '], ['Arts & Culture', 'Visual art ']];
+  const newTopics = [['Philosophy & Religion', 'Ethics '], ['History', 'Archaeology '], ['Biology & Medicine', 'Genetics '],
+    ['Society & Education', 'Cognitive psychology '], ['Business & Economics', 'Macroeconomics '],
+    ['Engineering & Tech', 'Electronic engineering '], ['Art, Music & Design', 'Visual art '], ['Places', 'Coastland '], ['Politics & Law', 'Courts '],
+    ['Internet Culture', 'Memes '], ['People', 'Inventors '], ['Transportation', 'Railways '],
+    ['Language & Literature', 'Novels '], ['Film, TV & Games', 'Cinema '], ['Space', 'Nebulae '],
+    ['Earth & Environment', 'Climate '], ['Food & Drink', 'Cuisine '], ['Sports', 'Running ']];
   for (const [topic] of newTopics) {
     const pin = page.getByRole('button', { name: `Pin ${topic}`, exact: true });
     if (await pin.count()) await pin.click();
@@ -367,7 +382,7 @@ db.close()
   }
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('button', { name: 'Browse topics' }).evaluate(el => el === document.activeElement), true);
-  assert.equal(await page.getByRole('tab').count(), 11);
+  assert.equal(await page.getByRole('tab').count(), 22);
   for (const [topic, prefix] of newTopics) {
     await page.getByRole('tab', { name: topic, exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
@@ -378,7 +393,7 @@ db.close()
   await page.screenshot({ path: 'test-results/pinned-topics-feed.png' });
   await page.reload();
   await page.locator('.mention-label').first().waitFor();
-  assert.equal(await page.getByRole('tab').count(), 11, 'Pins persist after reload');
+  assert.equal(await page.getByRole('tab').count(), 22, 'Pins persist after reload');
   await page.getByRole('tab', { name: 'History', exact: true }).click();
   await page.getByRole('button', { name: 'Browse topics' }).click();
   await page.getByRole('button', { name: 'Unpin History', exact: true }).click();
@@ -401,38 +416,38 @@ db.close()
   assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you'], 'All topics can be unpinned without restoring defaults');
   await page.setViewportSize({ width: 320, height: 844 });
   await page.getByRole('button', { name: 'Browse topics' }).click();
-  await page.getByRole('button', { name: 'Pin Arts & Culture', exact: true }).click();
+  await page.getByRole('button', { name: 'Pin Art, Music & Design', exact: true }).click();
   assert.equal(await page.evaluate(() => document.querySelector('dialog').scrollWidth <= document.querySelector('dialog').clientWidth), true, 'Topic picker fits a narrow phone');
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Browse topics' }).click();
-  for (const topic of ['Computer Science', 'Physics', 'History']) await page.getByRole('button', { name: `Pin ${topic}`, exact: true }).click();
+  for (const topic of ['Computing', 'Physics & Chemistry', 'History']) await page.getByRole('button', { name: `Pin ${topic}`, exact: true }).click();
   await page.locator('dialog').evaluate(dialog => { dialog.scrollTop = 0; });
   const pickerOrder = () => page.locator('.topic-row').evaluateAll(rows => rows.map(row => row.dataset.topicId));
   const originalOrder = await pickerOrder();
   const pinsBeforeDrag = await page.evaluate(() => localStorage.getItem('wikihack:pinned-topics-v1'));
-  const historyHandle = page.getByRole('button', { name: 'Reorder History', exact: true });
+  const historyHandle = page.getByRole('button', { name: 'Reorder Biology & Medicine', exact: true });
   await historyHandle.scrollIntoViewIfNeeded();
   const historyBox = await historyHandle.boundingBox();
-  const artsBox = await page.locator('.topic-row[data-topic-id="arts-culture"]').boundingBox();
+  const artsBox = await page.locator('.topic-row[data-topic-id="arts"]').boundingBox();
   await page.mouse.move(historyBox.x + historyBox.width / 2, historyBox.y + historyBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(historyBox.x + historyBox.width / 2, artsBox.y + 4, { steps: 15 });
   await page.mouse.up();
-  assert.deepEqual(await pickerOrder(), ['history', ...originalOrder.filter(id => id !== 'history')], 'Dragging moves only the chosen topic');
+  assert.deepEqual(await pickerOrder(), ['biology', ...originalOrder.filter(id => id !== 'biology')], 'Dragging moves only the chosen topic');
   assert.equal(await page.evaluate(() => localStorage.getItem('wikihack:pinned-topics-v1')), pinsBeforeDrag, 'Dragging preserves pins');
   await page.keyboard.press('Escape');
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'History', 'Arts & Culture', 'Computer Science', 'Physics']);
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Art, Music & Design', 'Computing', 'History', 'Physics & Chemistry']);
   await page.reload();
   await page.locator('.article-card').first().waitFor();
   await page.getByRole('button', { name: 'Browse topics' }).click();
-  assert.equal((await pickerOrder())[0], 'history', 'Dragged order persists after reload');
-  const physicsHandle = page.getByRole('button', { name: 'Reorder Physics', exact: true });
+  assert.equal((await pickerOrder())[0], 'biology', 'Dragged order persists after reload');
+  const physicsHandle = page.getByRole('button', { name: 'Reorder Physics & Chemistry', exact: true });
   await physicsHandle.focus();
   await physicsHandle.press('Space');
   await physicsHandle.press('Home');
   await physicsHandle.press('Enter');
-  assert.equal((await pickerOrder())[0], 'physics', 'Keyboard reordering works');
+  assert.equal((await pickerOrder())[0], 'science', 'Keyboard reordering works');
   const savedOrder = await pickerOrder();
   await physicsHandle.press('Space');
   await physicsHandle.press('ArrowDown');
@@ -446,18 +461,18 @@ db.close()
       type, touchPoints: ['touchEnd', 'touchCancel'].includes(type) ? [] : [{ x, y, id: 0 }],
     });
     await page.locator('dialog').evaluate(dialog => { dialog.scrollTop = 0; });
-    const csHandle = page.getByRole('button', { name: 'Reorder Computer Science', exact: true });
+    const csHandle = page.getByRole('button', { name: 'Reorder Computing', exact: true });
     const csBox = await csHandle.boundingBox();
     const firstBox = await page.locator('.topic-row').first().boundingBox();
     await touch('touchStart', csBox.x + csBox.width / 2, csBox.y + csBox.height / 2);
     await touch('touchMove', csBox.x + csBox.width / 2, firstBox.y + 8);
     await touch('touchEnd');
-    assert.equal((await pickerOrder())[0], 'computer-science', 'A native touch drag reorders topics');
+    assert.equal((await pickerOrder())[0], 'computing', 'A native touch drag reorders topics');
     const topBox = await csHandle.boundingBox();
     const dialogBox = await page.locator('dialog').boundingBox();
     await touch('touchStart', topBox.x + topBox.width / 2, topBox.y + topBox.height / 2);
     await touch('touchMove', topBox.x + topBox.width / 2, dialogBox.y + dialogBox.height - 6);
-    await page.waitForFunction(() => document.querySelector('.topic-row:last-child').dataset.topicId === 'computer-science' && document.querySelector('dialog').scrollTop > 0);
+    await page.waitForFunction(() => document.querySelector('.topic-row:last-child').dataset.topicId === 'computing' && document.querySelector('dialog').scrollTop > 0);
     await touch('touchEnd');
     const touchOrder = await pickerOrder();
     const lastBox = await csHandle.boundingBox();
@@ -487,6 +502,17 @@ db.close()
   assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('wikihack:topic-order-v1'))), beforeFailedSave);
   await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; delete window.originalSetItem; });
   await page.screenshot({ path: 'test-results/topics-reorder.png' });
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    localStorage.setItem('wikihack:pinned-topics-v1', JSON.stringify(['physics', 'history', 'computer-science', 'arts-culture', 'psychology']));
+    localStorage.setItem('wikihack:topic-order-v1', JSON.stringify(['physics', 'history', 'computer-science', 'arts-culture', 'psychology']));
+  });
+  await page.reload();
+  await page.locator('.article-card').first().waitFor();
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Physics & Chemistry', 'History', 'Computing', 'Art, Music & Design', 'Society & Education'], 'Existing pins and custom order migrate to the new groups');
+  await page.getByRole('button', { name: 'Browse topics' }).click();
+  assert.deepEqual((await pickerOrder()).slice(0, 5), ['science', 'history', 'computing', 'arts', 'society']);
+  assert.equal((await pickerOrder()).length, 21, 'New groups are appended to a saved order');
   await page.keyboard.press('Escape');
   assert.deepEqual(errors, []);
   assert.ok(requests.some(url => url.includes('/search/')));

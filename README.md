@@ -20,7 +20,7 @@ XWiki turns Wikipedia articles shared on Hacker News into a personal, X-style fe
   </tr>
   <tr>
     <td><img src="docs/screenshots/feed.png" alt="XWiki's personalized feed with Wikipedia article previews and post actions" width="260"></td>
-    <td><img src="docs/screenshots/topics.png" alt="Topic picker with pin controls for subjects such as Computer Science, Physics, and History" width="260"></td>
+    <td><img src="docs/screenshots/topics.png" alt="Topic picker with pin controls for 21 subjects with article counts, pin controls, and reorder handles" width="260"></td>
     <td><img src="docs/screenshots/search.png" alt="Search screen with Top and Rising rankings and articles from the Hacker News archive" width="260"></td>
   </tr>
 </table>
@@ -28,12 +28,12 @@ XWiki turns Wikipedia articles shared on Hacker News into a personal, X-style fe
 ## Follow your curiosity
 
 - **A feed that learns your interests.** For you mixes discoveries, popular articles, and rising topics. Heart a post to see more related ideas; mark it as seen to hide it, or choose Not interested to steer recommendations away from it.
-- **Your subjects, your timeline.** Open any topic or pin favorites beside For you. The picker starts alphabetically; drag its handles to set your own order, including your pinned tabs. Computer Science, Physics, and History start pinned; your choices stay saved in your browser.
+- **Your subjects, your timeline.** Open any topic or pin favorites beside For you. The picker starts alphabetically; drag its handles to set your own order, including your pinned tabs. Computing, Physics & Chemistry, and History start pinned; your choices stay saved in your browser.
 - **Read a little. Explore further.** Expand a preview to its full first paragraph, or open the article on Wikipedia when something catches your attention.
 - **See why it was shared.** The comments button opens the original Hacker News mentions, with links back to their discussions.
 - **Find your next rabbit hole.** Search the archive, browse all-time favorites in Top, or explore the last six months of activity in Rising.
 
-Choose from **Computer Science, Physics, History, Math, Philosophy, Biology, Psychology, Economics, Engineering, and Arts & Culture**.
+Explore **21 subjects**, including Places, Computing, History, Mathematics, Philosophy & Religion, Biology & Medicine, and Internet Culture. Topics use [Wikipedia’s own article-topic predictions](https://wikitech.wikimedia.org/wiki/Search/articletopic), so a history article can belong in History without having “history” in its title. Each list keeps the personalized discovery feed.
 
 No account needed. Likes, seen posts, and pinned topics stay in this browser. The dark interface works on phones and desktop, with pull-to-refresh on Home and keyboard navigation for the feed tabs.
 

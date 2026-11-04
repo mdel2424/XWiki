@@ -38,6 +38,7 @@ h1,h2,h3,h4,p { margin:0; }
 .topic-symbol .icon { width:26px; height:26px; stroke-width:1.8; }
 .topic-copy { display:block; min-width:0; }
 .topic-copy strong { display:block; font-size:15px; font-weight:700; line-height:1.35; }
+.topic-copy .topic-count { display:inline-block; margin-left:6px; color:var(--muted); font-size:11px; font-weight:400; white-space:nowrap; }
 .topic-copy > span { display:block; margin-top:3px; font-size:13px; line-height:1.4; color:var(--muted); }
 .topic-pin { display:grid; place-items:center; flex-shrink:0; width:44px; height:44px; padding:0; border-radius:50%; color:var(--muted); }
 .topic-pin .icon { width:21px; height:21px; transform:rotate(35deg); stroke-width:1.6; }

@@ -50,6 +50,25 @@ A local TF-IDF cosine model boosts discovery order using liked titles, descripti
 
 The global archive makes all-time candidates possible; before import the UI labels its preview collection. Content similarity can only be as good as the available Wikipedia metadata. On-demand browser metadata improves the current pool; `data:enrich` persists metadata for subsequent retrieval. Feedback is language-specific and does not perform cross-language semantic translation.
 
+## Wikipedia topic predictions
+
+Topic feeds use [Wikimedia’s link-based article-topic predictions](https://wikitech.wikimedia.org/wiki/Search/articletopic). The collector reads the indexed `weighted_tags` field through MediaWiki’s `prop=cirrusdoc&cdincludes=weighted_tags` API in batches of up to 50 titles, resolving normalization and redirects. It prefers `classification.prediction.articletopic/` and accepts the historical `classification.ores.articletopic/` family when needed; draft-topic tags are excluded. Scores are probabilities encoded as integers out of 1,000. See [CirrusSearch debugging](https://www.mediawiki.org/wiki/Help:CirrusSearch/Debug) and the [topic taxonomy](https://www.mediawiki.org/wiki/Help:CirrusSearch/articletopic).
+
+`src/topic-definitions.json` groups these model labels into the 21 subjects shown in the app. An article belongs to each group with at least one prediction scoring 0.5 or higher. This is multilabel classification: an article can belong to several groups. Titles and categories are never used as a classification fallback. Confidence determines membership only; topic candidates retain the ordinary weighted discovery draw, Top/Rising lanes, feedback, exclusions and pagination.
+
+```sh
+npm run data:topics
+# Resume after interruption: successful batches are cached automatically.
+# Rebuild only from the existing cache, without network requests:
+npm run data:topics -- --export-only
+# Refresh predictions for the existing export:
+npm run data:topics -- --refresh
+```
+
+Raw scores and canonical titles are stored in the ignored `.data/topic-predictions.sqlite` cache. The collector limits request concurrency and request rate, retries temporary failures, and retains successful batches. It fetches only articles already in the exported HN-linked catalog, not all of Wikipedia. Missing pages, unsupported wikis and pages without scores are recorded separately; their posts stay in the general feed and search.
+
+The publisher writes a content-addressed topic index, validates article ordinals, then atomically switches `manifest.topicIndex`. Article shards and existing context offsets are preserved. The index and manifest record classifier provenance, threshold, collection time, coverage, and per-topic article counts. UI counts come from this catalog rather than another app’s totals. The client loads the shared membership index on the first topic visit. Full exports reuse cached predictions; run `data:topics` after exporting newly imported articles to collect their missing scores. Commit the updated manifest and topic index with the app before deployment.
+
 ## Coverage and reconciliation
 
 - “All manifest shards imported” is **not** equivalent to every historical HN ID being present. `data:audit` scans actual IDs and records internal gaps.

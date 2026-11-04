@@ -112,7 +112,7 @@ def main():
                 set_meta(db, 'gap_fill_cursor', last_checked)
                 missing_ranges(db)
         elif args.command == 'export':
-            manifest = export_static(db, output=args.output, limit=args.limit)
+            manifest = export_static(db, output=args.output, limit=args.limit, topic_cache='.data/topic-predictions.sqlite')
             print(json.dumps({'output': args.output, **{key: manifest[key] for key in ('articleCount', 'mentionCount', 'dataBytes', 'dataFiles', 'generation')}}, indent=2))
             return
         with db:

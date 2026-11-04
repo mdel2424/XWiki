@@ -57,19 +57,20 @@ To update ranking indexes from an existing export without the source database:
 ```sh
 npm run data:rank       # Rebuild the six-month Rising ranking
 npm run data:weights    # Rebuild discovery weights
+npm run data:topics     # Cache Wikipedia topic predictions and publish the topic index
 ```
 
-Additional commands include `data:watch`, `data:status`, `data:audit`, and `data:fill-gaps`. `package:catalog` creates an optional archive for backup or distribution. Full exports include the rankings and discovery weights; exports with `--limit N` are marked partial.
+Additional commands include `data:watch`, `data:status`, `data:audit`, and `data:fill-gaps`. `package:catalog` creates an optional archive for backup or distribution. Full exports include rankings, discovery weights, and a topic index from the local prediction cache; exports with `--limit N` are marked partial.
 
 The exporter reads a consistent SQLite snapshot, checks comment offsets, and stages output before replacing the catalogue. If generation fails or exceeds its budget, the existing export is retained. See [pipeline notes](pipeline.md) for gaps, deletion handling, source provenance, and coverage limits.
 
 ## Browser data
 
-`data/catalog/manifest.json` points to a versioned snapshot containing article cards, search postings, rankings, ID/redirect lookups, discovery weights, and paginated HN comments. The client fetches shards as needed and keeps a bounded cache.
+`data/catalog/manifest.json` points to a versioned snapshot containing article cards, search postings, rankings, ID/redirect lookups, discovery weights, Wikipedia topic memberships, and paginated HN comments. The client fetches shards as needed and keeps a bounded cache.
 
-Recommendations, likes, seen history, and pins stay in the browser. Saved preferences use localStorage. Topic matching checks article titles, descriptions, and Wikipedia categories; mentions in body text alone do not qualify an article. Top and Rising preserve published ranking order regardless of likes. Original HN comment text is escaped before rendering.
+Recommendations, likes, seen history, and pins stay in the browser. Saved preferences use localStorage. Topic membership comes exclusively from Wikipedia’s article-topic predictions at a confidence of at least 0.5. The shared `src/topic-definitions.json` maps model labels into 21 display groups. Titles, summaries, and categories do not decide membership. Unscored articles remain available in For you and search. Topic feeds apply the same personalization and 80/10/10 discovery mix within each group; confidence scores do not rank posts. Top and Rising preserve published ranking order regardless of likes. Original HN comment text is escaped before rendering.
 
-The topic picker defaults to alphabetical order. Dragging a handle saves a custom order separately from pin membership; pinned Home tabs follow that custom order. Without a saved order, the Home defaults remain Computer Science, Physics, History. Reordering supports mouse and touch, edge scrolling, and Space/arrow/Enter keyboard controls with Escape to cancel. New topics are appended alphabetically to saved orders.
+The topic picker defaults to alphabetical order. Dragging a handle saves a custom order separately from pin membership; pinned Home tabs follow that custom order. Without a saved order, the Home defaults remain Computing, Physics & Chemistry, History. Existing saved pins and orders migrate to the broader groups; Psychology becomes Society & Education. Reordering supports mouse and touch, edge scrolling, and Space/arrow/Enter keyboard controls with Escape to cancel. New topics are appended alphabetically to saved orders.
 
 ## Tests
 
@@ -93,7 +94,8 @@ index.html                    App entry point
 site.webmanifest              Home-screen metadata and icons
 style.css                     Dark, responsive interface
 src/app.js                    UI and navigation
-src/topics.js                 Topic definitions and pin defaults
+src/topic-definitions.json     Shared 21-group model taxonomy
+src/topics.js                 Membership, pin defaults and preference migration
 src/topic-reorder.js          Pointer and keyboard topic reordering
 src/static-catalog.js         Static retrieval, search and pagination
 src/recommendations.js        Local recommendation ranking

@@ -1,0 +1,23 @@
+[
+  {"id":"places","label":"Places","description":"Countries, cities and regions","models":["Geography."]},
+  {"id":"engineering","label":"Engineering & Tech","description":"Engineering, machines and technology","models":["STEM.Engineering","STEM.Technology"]},
+  {"id":"computing","label":"Computing","description":"Computer science, software and information","models":["STEM.Computing","Culture.Media.Software","STEM.Libraries_&_Information"]},
+  {"id":"politics","label":"Politics & Law","description":"Government, law and political systems","models":["History_and_Society.Politics_and_government"]},
+  {"id":"internet","label":"Internet Culture","description":"Online communities, memes and web culture","models":["Culture.Internet_culture"]},
+  {"id":"biology","label":"Biology & Medicine","description":"Living things, health and medicine","models":["STEM.Biology","STEM.Medicine_&_Health"]},
+  {"id":"people","label":"People","description":"Lives and biographies","models":["Culture.Biography."]},
+  {"id":"economics","label":"Business & Economics","description":"Markets, companies and economic systems","models":["History_and_Society.Business_and_economics"]},
+  {"id":"history","label":"History","description":"Past events, civilizations and military history","models":["History_and_Society.History","History_and_Society.Military_and_warfare"]},
+  {"id":"transport","label":"Transportation","description":"Vehicles, travel and transport systems","models":["History_and_Society.Transportation"]},
+  {"id":"language","label":"Language & Literature","description":"Languages, books and writing","models":["Culture.Linguistics","Culture.Literature","Culture.Media.Books"]},
+  {"id":"media","label":"Film, TV & Games","description":"Screen entertainment, games and comics","models":["Culture.Media.Films","Culture.Media.Television","Culture.Media.Video_games","Culture.Visual_arts.Comics_and_Anime","Culture.Media.Entertainment","Culture.Media.Radio"]},
+  {"id":"philosophy","label":"Philosophy & Religion","description":"Ideas, beliefs and ethical questions","models":["Culture.Philosophy_and_religion"]},
+  {"id":"math","label":"Mathematics","description":"Mathematical ideas, structures and proofs","models":["STEM.Mathematics"]},
+  {"id":"science","label":"Physics & Chemistry","description":"Matter, energy and chemical science","models":["STEM.Physics","STEM.Chemistry"]},
+  {"id":"arts","label":"Art, Music & Design","description":"Visual art, architecture, music and performance","models":["Culture.Visual_arts.","Culture.Media.Music","Culture.Performing_arts"]},
+  {"id":"space","label":"Space","description":"Astronomy and the universe","models":["STEM.Space"]},
+  {"id":"society","label":"Society & Education","description":"Society, learning and social institutions","models":["History_and_Society.Society","History_and_Society.Education"]},
+  {"id":"earth","label":"Earth & Environment","description":"Earth science, climate and the environment","models":["STEM.Earth_and_environment"]},
+  {"id":"food","label":"Food & Drink","description":"Food, cooking and drinks","models":["Culture.Food_and_drink"]},
+  {"id":"sports","label":"Sports","description":"Sports, athletes and competition","models":["Culture.Sports"]}
+]

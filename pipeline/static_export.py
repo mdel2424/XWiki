@@ -10,6 +10,7 @@ import unicodedata
 from pathlib import Path
 
 from .store import six_months_ago, status
+from .topics import topic_payload, index_metadata
 
 STOP = set('a an the and of to in on for with from by is are was were it its as at that this or not be'.split())
 
@@ -25,7 +26,7 @@ def bucket(text, count):
     return value % count
 
 
-def export_static(db, output='data/catalog', limit=None, article_size=256, context_size=128, rank_size=512, max_bytes=900_000_000):
+def export_static(db, output='data/catalog', limit=None, article_size=256, context_size=128, rank_size=512, max_bytes=900_000_000, topic_cache=None):
     destination = Path(output).resolve()
     if destination.is_dir() and any(destination.iterdir()):
         marker = destination / 'manifest.json'
@@ -140,6 +141,10 @@ def export_static(db, output='data/catalog', limit=None, article_size=256, conte
             'risingWindowMonths': 6, 'risingSince': six_months_ago(now), 'risingAsOf': now,
             'discoveryWeights': 'discovery-weights.json',
             'dataBytes': total_bytes, 'dataFiles': files}
+        payload = topic_payload(root, manifest, topic_cache)
+        _, metadata = index_metadata(payload)
+        write(metadata['path'], payload)
+        manifest.update({'topicIndex': metadata, 'dataBytes': total_bytes, 'dataFiles': files})
         (stage / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
         db.execute('DROP TABLE static_ord')
         db.execute('RELEASE static_export')

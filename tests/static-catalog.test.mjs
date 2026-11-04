@@ -5,8 +5,8 @@ import { promisify } from 'node:util';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { StaticCatalog, bucket, searchTerms } from '../src/static-catalog.js';
-import { matchesTopic } from '../src/topics.js';
+import { StaticCatalog } from '../src/static-catalog.js';
+import { TOPICS, matchesTopic, predictionTopics } from '../src/topics.js';
 import { recommend, emptyProfile } from '../src/recommendations.js';
 const exec = promisify(execFile);
 
@@ -59,38 +59,39 @@ db.close()
   } finally { await rm(temporary, { recursive: true, force: true }); }
 });
 
-test('topic feeds paginate the full archive with personal discovery lanes and exclude incidental matches', async () => {
-  const count = 1320;
-  const categories = ['Algebra', 'Computer science', 'Quantum physics', 'Ethics', 'Archaeology',
-    'Genetics', 'Cognitive psychology', 'Macroeconomics', 'Electronic engineering', 'Visual art', 'Unrelated'];
-  const all = Array.from({ length: count }, (_, i) => ({ id: `en:Topic${i}`, title: `Topic ${i}`, _index: i,
-    mentions: [], categories: [categories[i % categories.length]],
-    extract: 'An incidental mention of mathematics, computer programming, quantum physics, philosophy, history, biology, psychology, economics, engineering and art.',
-    metrics: { distinctLinkers: 10, mentionCount: count - i } }));
-  const postings = Array.from({ length: 256 }, () => ({}));
-  for (const article of all) for (const term of searchTerms(`${article.title} ${article.categories.join(' ')} ${article.extract}`)) {
-    (postings[bucket(term.slice(0, 2), 256)][term] ||= []).push(article._index);
-  }
+test('prediction topic feeds paginate all 21 groups without title searches or confidence ranking', async () => {
+  const count = 2640, width = TOPICS.length + 1;
+  const all = Array.from({ length: count }, (_, i) => {
+    const topic = TOPICS[i % width], model = topic?.models[0];
+    return { id: `en:Topic${i}`, title: topic ? `Subject ${i}` : 'History Physics Mathematics', _index: i,
+      mentions: [], topicPredictions: topic ? { [model + (model.endsWith('.') ? 'Example' : '')]: i % 2 ? 0.5 : 0.99 } : {},
+      categories: ['History', 'Mathematics', 'Computing'],
+      metrics: { distinctLinkers: 10, mentionCount: count - i } };
+  });
+  const topics = Object.fromEntries(TOPICS.map(topic => [topic.id, all.filter(article => predictionTopics(article.topicPredictions).includes(topic.id)).map(article => article._index)]));
+  const index = { kind: 'xwiki-topic-index', version: 1, generation: 'v-topics', coverage: { articles: count }, source: { kind: 'wikimedia-articletopic' }, topics };
   for (const weighted of [false, true]) {
+    const requests = [];
     const manifest = { kind: 'wikihack-static', version: 1, generation: 'v-topics', articleCount: count,
-      articleShardSize: 256, rankShardSize: 512, risingCount: count, searchBuckets: 256,
+      articleShardSize: 256, rankShardSize: 512, risingCount: count,
+      topicIndex: { path: 'topics-test.json' },
       ...(weighted ? { discoveryWeights: 'discovery-weights.json' } : {}) };
     const catalog = new StaticCatalog({ base: new URL('https://example.test/catalog/'), fetcher: async raw => {
       const file = new URL(raw).pathname;
+      requests.push(file);
       const shard = Number(file.split('/').at(-1).split('.')[0]);
       let value;
       if (file.endsWith('/manifest.json')) value = manifest;
+      else if (file.endsWith('/topics-test.json')) value = index;
       else if (file.endsWith('/discovery-weights.json')) value = all.map(() => 10);
-      else if (file.includes('/search/')) value = postings[shard];
       else if (file.includes('/articles/')) value = all.slice(shard * 256, shard * 256 + 256);
       else if (file.includes('/rising/')) value = all.map(a => a._index).reverse().slice(shard * 512, shard * 512 + 512);
       else throw new Error(`Unexpected topic request: ${file}`);
       return { ok: true, json: async () => value };
     } });
     await catalog.open();
-    for (const [category, mode] of ['math', 'computer-science', 'physics', 'philosophy', 'history',
-      'biology', 'psychology', 'economics', 'engineering', 'arts-culture'].entries()) {
-      const exclude = [`en:Topic${category}`], visited = new Set(exclude);
+    for (const [category, topic] of TOPICS.entries()) {
+      const mode = topic.id, exclude = [`en:Topic${category}`], visited = new Set(exclude);
       let cursor = 0, pages = 0;
       do {
         const result = await catalog.feed({ mode, cursor, mix: 42, exclude: [...visited] });
@@ -107,8 +108,10 @@ test('topic feeds paginate the full archive with personal discovery lanes and ex
         cursor = result.nextCursor;
         assert.ok(++pages < 20, 'Topic pagination finishes');
       } while (cursor);
-      assert.equal(visited.size, count / categories.length, `${mode} reaches every relevant article, even beyond the first global page`);
+      assert.equal(visited.size, count / width, `${mode} reaches every predicted article`);
     }
+    assert.equal(requests.filter(file => file.includes('/topics-test.json')).length, 1, 'All groups share one lazy index');
+    assert.equal(requests.some(file => file.includes('/search/')), false, 'Topic membership never uses keyword postings');
   }
 });
 

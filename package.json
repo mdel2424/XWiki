@@ -17,6 +17,7 @@
     "data:fill-gaps": "node scripts/pipeline.mjs fill-gaps",
     "data:enrich": "node scripts/pipeline.mjs enrich",
     "data:weights": "python3 -m pipeline.discovery",
+    "data:topics": "python3 -m pipeline.topics",
     "data:rank": "python3 -m pipeline.ranking",
     "data:export": "node scripts/pipeline.mjs export",
     "test:pipeline": "python3 -m unittest discover -s tests -p 'test_*.py'",

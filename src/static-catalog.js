@@ -1,5 +1,5 @@
 import { discoveryOrder } from './discovery.js';
-import { matchesTopic, topicFor, isPersonalized, EXACT_TOPIC_TERMS } from './topics.js';
+import { matchesTopic, topicFor, isPersonalized } from './topics.js';
 
 const STOP = new Set('a an the and of to in on for with from by is are was were it its as at that this or not be'.split(' '));
 export function searchTerms(text = '') {
@@ -22,7 +22,7 @@ function sample(count, start, size, seed) {
 export class StaticCatalog {
   constructor({ base = new URL('../data/catalog/', import.meta.url), fetcher = fetch } = {}) {
     this.base = new URL(base); this.fetcher = fetcher; this.manifest = null; this.cache = new Map(); this.discovery = null;
-    this.topicPools = new Map();
+    this.topicIndex = null; this.articleTopics = null; this.topicDataPromise = null;
   }
   async read(path, { fresh = false } = {}) {
     const url = new URL(path, this.base);
@@ -44,8 +44,8 @@ export class StaticCatalog {
     if (manifest.kind !== 'wikihack-static' || manifest.version !== 1 || !manifest.articleCount ||
         !/^v-[a-z0-9]+$/.test(manifest.generation)) throw new Error('Static catalogue is missing or unsupported.');
     if (this.manifest?.generation !== manifest.generation || this.manifest?.risingPath !== manifest.risingPath ||
-        this.manifest?.discoveryWeights !== manifest.discoveryWeights) {
-      this.cache.clear(); this.discovery = null; this.topicPools.clear();
+        this.manifest?.discoveryWeights !== manifest.discoveryWeights || this.manifest?.topicIndex?.path !== manifest.topicIndex?.path) {
+      this.cache.clear(); this.discovery = null; this.topicIndex = null; this.articleTopics = null; this.topicDataPromise = null;
     }
     this.manifest = manifest;
     return manifest;
@@ -70,7 +70,10 @@ export class StaticCatalog {
     const unique = [...new Set(indices)].filter(i => Number.isInteger(i) && i >= 0 && i < this.manifest.articleCount);
     const groups = [...new Set(unique.map(i => Math.floor(i / size)))];
     const shards = new Map(await Promise.all(groups.map(async group => [group, await this.read(this.file(`articles/${group}.json`))])));
-    return unique.map(i => shards.get(Math.floor(i / size))[i % size]);
+    return unique.map(i => {
+      const article = shards.get(Math.floor(i / size))[i % size];
+      return this.articleTopics ? { ...article, topics: this.articleTopics[i] || [] } : article;
+    });
   }
   async index(id) {
     const ids = await this.read(this.file(`ids/${bucket(id, this.manifest.idBuckets)}.json`));
@@ -108,18 +111,37 @@ export class StaticCatalog {
     const ids = query.trim() ? await this.matches(query) : Array.from({ length: this.manifest.articleCount }, (_, i) => i);
     return { articles: await this.cards(ids.slice(cursor, cursor + limit)), nextCursor: cursor + limit < ids.length ? cursor + limit : null };
   }
-  async topicPool(topic) {
-    if (!this.topicPools.has(topic.id)) {
-      // Search the full catalogue, then verify the subject on every returned card.
-      const terms = [...new Set(topic.terms.map(term => searchTerms(term)[0]).filter(Boolean))];
-      const queries = [];
-      for (let i = 0; i < terms.length; i += 16) queries.push(terms.slice(i, i + 16).join(' '));
-      const pending = Promise.all(queries.map(query => this.matches(query, { any: true, exact: EXACT_TOPIC_TERMS })))
-        .then(groups => [...new Set(groups.flat())].sort((a, b) => a - b))
-        .catch(error => { this.topicPools.delete(topic.id); throw error; });
-      this.topicPools.set(topic.id, pending);
+  async topicData() {
+    if (!this.manifest.topicIndex?.path) throw new Error('Wikipedia topic predictions are unavailable in this catalogue.');
+    if (!this.topicDataPromise) {
+      const generation = this.manifest.generation;
+      const pending = this.read(this.file(this.manifest.topicIndex.path)).then(data => {
+        if (data.kind !== 'xwiki-topic-index' || data.version !== 1 || data.generation !== generation ||
+            data.coverage?.articles !== this.manifest.articleCount || !data.topics ||
+            data.source?.kind !== 'wikimedia-articletopic') throw new Error('Invalid Wikipedia topic index.');
+        const assignments = new Array(this.manifest.articleCount);
+        for (const [topic, indices] of Object.entries(data.topics)) {
+          if (!Array.isArray(indices)) throw new Error('Invalid Wikipedia topic membership.');
+          const seen = new Set();
+          for (const index of indices) {
+            if (!Number.isInteger(index) || index < 0 || index >= assignments.length || seen.has(index)) throw new Error('Invalid Wikipedia topic membership.');
+            seen.add(index); (assignments[index] ||= []).push(topic);
+          }
+        }
+        if (this.manifest.generation !== generation || this.topicDataPromise !== pending) throw new Error('Catalogue changed while loading topics.');
+        this.topicIndex = data; this.articleTopics = assignments;
+        return data;
+      }).catch(error => {
+        if (this.topicDataPromise === pending) this.topicDataPromise = null;
+        throw error;
+      });
+      this.topicDataPromise = pending;
     }
-    return this.topicPools.get(topic.id);
+    return this.topicDataPromise;
+  }
+  async topicPool(topic) {
+    const data = await this.topicData();
+    return data.topics[topic.id] || [];
   }
   async feed({ mode = 'for-you', cursor = 0, limit = 60, mix = 0, exclude = [] } = {}) {
     if (!isPersonalized(mode)) {
