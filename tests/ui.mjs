@@ -78,6 +78,13 @@ db.close()
   await context.route('https://en.wikipedia.org/**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname === '/w/api.php') {
+      if (url.searchParams.get('prop') === 'pageviews') {
+        assert.equal(url.searchParams.get('pvipdays'), '30');
+        await route.fulfill({ json: { query: { pages: url.searchParams.get('titles').split('|').map(title => ({
+          title, pageviews: Object.fromEntries(Array.from({ length: 30 }, (_, day) => [day, 100])),
+        })) } } });
+        return;
+      }
       paragraphRequests.push(url.href);
       assert.equal(url.searchParams.get('exsentences'), null, 'Expansion fetches the whole paragraph');
       assert.equal(url.searchParams.get('explaintext'), null, 'HTML keeps paragraph boundaries');

@@ -1,3 +1,4 @@
+import { readershipWeight } from './readership.js';
 import { sixMonthsAgo } from './core.js';
 // Local, explainable content-based recommendations. No claim to reproduce X's model.
 const STOP = new Set(('the and for that this with from into are was were has have had but not its their they them ' +
@@ -50,7 +51,7 @@ export function cosine(a, b) {
 export function emptyProfile() { return { version: 1, likes: {}, rejected: {}, seen: {} }; }
 export function hidden(article, profile) { return Boolean(profile.rejected[article.id] || profile.seen?.[article.id]); }
 export function snapshot(article) {
-  return Object.fromEntries(['id', 'title', 'lang', 'description', 'extract', 'firstParagraph', 'categories', 'related', 'url', 'illustration', 'sample', 'mentions', 'metrics', 'thumbnail', 'topics', 'topicPredictions', '_index']
+  return Object.fromEntries(['id', 'title', 'lang', 'description', 'extract', 'firstParagraph', 'categories', 'related', 'url', 'illustration', 'sample', 'mentions', 'metrics', 'thumbnail', 'readership', 'topics', 'topicPredictions', '_index']
     .filter(key => article[key] !== undefined).map(key => [key, article[key]]));
 }
 export function feedback(profile, article, action, now = Date.now()) {
@@ -112,7 +113,7 @@ export function recommend(articles, profile = emptyProfile(), { now = Date.now()
     const latest = article.metrics?.latestMention || Math.max(0, ...(article.mentions || []).map(m => m.createdAt));
     const recency = latest ? Math.exp(-Math.max(0, now / 1000 - latest) / (90 * 86400)) : 0;
     return { article, vector, aversion, quality, linkers, affinity,
-      score: .45 * quality + .1 * recency + 4 * affinity - 6 * aversion + .1 * noise(article.id, seed) - (profile.likes[article.id] ? .4 : 0),
+      score: .15 * Math.log(readershipWeight(article, now)) + .45 * quality + .1 * recency + 4 * affinity - 6 * aversion + .1 * noise(article.id, seed) - (profile.likes[article.id] ? .4 : 0),
       reason: affinity > .12 ? `Because you liked ${positiveMatches[0].title}` : 'From the HN collection' };
   });
   // Eight archive-wide discoveries, one six-month trend, one all-time top post.
@@ -120,7 +121,7 @@ export function recommend(articles, profile = emptyProfile(), { now = Date.now()
   const byId = new Map(pool.map(candidate => [candidate.article.id, candidate]));
   const fromSource = lane => sources?.[lane] ? sources[lane].map(id => byId.get(id)).filter(Boolean) : [...pool];
   const random = fromSource('random').sort((a, b) =>
-    (noise(b.article.id, seed) + b.affinity - 6 * b.aversion) - (noise(a.article.id, seed) + a.affinity - 6 * a.aversion));
+    (Math.pow(noise(b.article.id, seed), 1 / readershipWeight(b.article, now)) + b.affinity - 6 * b.aversion) - (Math.pow(noise(a.article.id, seed), 1 / readershipWeight(a.article, now)) + a.affinity - 6 * a.aversion));
   const queues = {
     random,
     top: sources ? fromSource('top').sort((a, b) => noise(b.article.id, `top:${seed}`) - noise(a.article.id, `top:${seed}`)) : [...pool].sort((a, b) => b.linkers - a.linkers || (b.article.metrics?.mentionCount || 0) - (a.article.metrics?.mentionCount || 0)),
