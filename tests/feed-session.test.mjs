@@ -8,16 +8,16 @@ const page = (id, nextCursor = null) => ({ articles: [{ id }], nextCursor });
 test('tabs keep separate candidates and pagination cursors', async () => {
   const feeds = new FeedSession();
   await feeds.load(async () => page('personal', 60));
-  feeds.select('top');
-  await feeds.load(async ({ mode, cursor }) => { assert.equal(mode, 'top'); assert.equal(cursor, 0); return page('all-time', 120); });
-  feeds.select('rising');
+  feeds.select('for-you', 'top');
+  await feeds.load(async ({ mode, sort, cursor }) => { assert.equal(mode, 'for-you'); assert.equal(sort, 'top'); assert.equal(cursor, 0); return page('all-time', 120); });
+  feeds.select('for-you', 'rising');
   await feeds.load(async () => page('recent', 180));
-  feeds.select('for-you');
+  feeds.select('for-you', 'for-you');
   assert.deepEqual(feeds.tab().ids, ['personal']);
   await feeds.load(async ({ cursor }) => { assert.equal(cursor, 60); return page('next-personal'); });
   assert.deepEqual(feeds.tab().ids, ['personal', 'next-personal']);
-  assert.equal(feeds.tab('top').cursor, 120);
-  assert.equal(feeds.tab('rising').cursor, 180);
+  assert.equal(feeds.tab('for-you', 'top').cursor, 120);
+  assert.equal(feeds.tab('for-you', 'rising').cursor, 180);
   assert.equal(feeds.select('random'), false);
 });
 test('topic lists own their cursors and cannot replace another selected list', async () => {
@@ -41,7 +41,7 @@ test('topic lists own their cursors and cannot replace another selected list', a
 test('rapid tab switches cannot commit an old response over the active tab', async () => {
   const feeds = new FeedSession(), first = deferred(), second = deferred();
   const personal = feeds.load(() => first.promise);
-  feeds.select('top');
+  feeds.select('for-you', 'top');
   const popular = feeds.load(() => second.promise);
   first.resolve(page('old-personal', 60));
   assert.equal((await personal).current, false);
@@ -70,7 +70,44 @@ test('refresh replaces the selected page, deduplicates IDs, and preserves other 
   await feeds.load(async ({ cursor }) => { assert.equal(cursor, 0); return { articles: [{ id: 'new' }, { id: 'new' }], nextCursor: 10 }; }, { reset: true });
   assert.deepEqual(feeds.tab().ids, ['new']);
   assert.equal(feeds.tab().cursor, 10);
-  assert.equal(feeds.tab('top').ids, null);
+  assert.equal(feeds.tab('for-you', 'top').ids, null);
   feeds.canonicalize([{ id: 'canonical', sourceIds: ['new'] }]);
   assert.deepEqual(feeds.tab().ids, ['canonical']);
+});
+
+test('each topic/sort pair owns its candidates and late sort responses cannot replace the active sort', async () => {
+  const feeds = new FeedSession(), pending = deferred();
+  feeds.select('math', 'for-you');
+  const discovery = feeds.load(() => pending.promise);
+  feeds.select('math', 'wikipedia');
+  await feeds.load(async ({ mode, sort, cursor }) => {
+    assert.deepEqual([mode, sort, cursor], ['math', 'wikipedia', 0]);
+    return page('most-read', 2);
+  });
+  pending.resolve(page('personal-math', { random: 40, top: 4, rising: 4 }));
+  assert.equal((await discovery).current, false);
+  assert.deepEqual(feeds.tab().ids, ['most-read']);
+  feeds.select('science', 'wikipedia');
+  assert.equal(feeds.tab().ids, null);
+  feeds.select('math', 'wikipedia');
+  await feeds.load(async ({ cursor }) => { assert.equal(cursor, 2); return page('next-most-read'); });
+  assert.deepEqual(feeds.tab().ids, ['most-read', 'next-most-read']);
+  feeds.select('math', 'for-you');
+  assert.deepEqual(feeds.tab().ids, ['personal-math']);
+  assert.deepEqual(feeds.tab().cursor, { random: 40, top: 4, rising: 4 });
+  assert.equal(feeds.select('math', 'invalid'), false);
+});
+
+test('a published snapshot change invalidates every topic/sort and pending request', async () => {
+  const feeds = new FeedSession(), pending = deferred();
+  feeds.select('math', 'wikipedia');
+  const old = feeds.load(() => pending.promise);
+  feeds.select('science', 'top');
+  await feeds.load(async () => page('old-physics', 10));
+  feeds.invalidate();
+  pending.resolve(page('old-math', 20));
+  assert.equal((await old).stale, true);
+  assert.equal(feeds.tab().ids, null);
+  assert.equal(feeds.tab('math', 'wikipedia').ids, null);
+  assert.equal(feeds.tab().cursor, 0);
 });

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .store import six_months_ago, status
 from .topics import topic_payload, index_metadata
+from .wikipedia import payload as wikipedia_payload, index_metadata as wikipedia_metadata
 
 STOP = set('a an the and of to in on for with from by is are was were it its as at that this or not be'.split())
 
@@ -26,7 +27,7 @@ def bucket(text, count):
     return value % count
 
 
-def export_static(db, output='data/catalog', limit=None, article_size=256, context_size=128, rank_size=512, max_bytes=900_000_000, topic_cache=None):
+def export_static(db, output='data/catalog', limit=None, article_size=256, context_size=128, rank_size=512, max_bytes=900_000_000, topic_cache=None, wikipedia_cache=None):
     destination = Path(output).resolve()
     if destination.is_dir() and any(destination.iterdir()):
         marker = destination / 'manifest.json'
@@ -145,6 +146,10 @@ def export_static(db, output='data/catalog', limit=None, article_size=256, conte
         _, metadata = index_metadata(payload)
         write(metadata['path'], payload)
         manifest.update({'topicIndex': metadata, 'dataBytes': total_bytes, 'dataFiles': files})
+        wikipedia = wikipedia_payload(stage, manifest, wikipedia_cache)
+        _, metadata = wikipedia_metadata(wikipedia)
+        write(metadata['path'], wikipedia)
+        manifest.update({'wikipediaIndex': metadata, 'dataBytes': total_bytes, 'dataFiles': files})
         (stage / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
         db.execute('DROP TABLE static_ord')
         db.execute('RELEASE static_export')

@@ -1,19 +1,25 @@
-import { HOME_FEEDS, RANKED_FEEDS } from './topics.js';
+import { HOME_FEEDS, FEED_SORTS } from './topics.js';
 
-export const FEED_MODES = [...HOME_FEEDS, ...RANKED_FEEDS].map(feed => feed.id);
+export const FEED_MODES = HOME_FEEDS.map(feed => feed.id);
 
-// Each tab owns its page/cursor. Responses cannot commit over newer requests.
+// Each topic/sort pair owns its cursor. Responses cannot commit over newer requests.
 export class FeedSession {
   constructor() {
     this.mode = 'for-you';
-    this.tabs = new Map(FEED_MODES.map(mode => [mode, { ids: null, sources: null, cursor: 0, ticket: 0, loading: false }]));
+    this.sort = 'for-you';
+    this.tabs = new Map(FEED_MODES.flatMap(mode => FEED_SORTS.map(sort => [`${mode}:${sort.id}`, { ids: null, sources: null, cursor: 0, ticket: 0, loading: false }])));
   }
-  select(mode) {
-    if (!this.tabs.has(mode)) return false;
-    this.mode = mode;
+  select(mode, sort = this.sort) {
+    if (!this.tab(mode, sort)) return false;
+    this.mode = mode; this.sort = sort;
     return true;
   }
-  tab(mode = this.mode) { return this.tabs.get(mode); }
+  tab(mode = this.mode, sort = this.sort) { return this.tabs.get(`${mode}:${sort}`); }
+  invalidate() {
+    for (const tab of this.tabs.values()) {
+      Object.assign(tab, { ids: null, sources: null, cursor: 0, loading: false, ticket: tab.ticket + 1 });
+    }
+  }
   canonicalize(enriched) {
     for (const tab of this.tabs.values()) {
       if (!tab.ids) continue;
@@ -25,12 +31,12 @@ export class FeedSession {
       }
     }
   }
-  async load(loader, { mode = this.mode, reset = false } = {}) {
-    const tab = this.tab(mode), ticket = ++tab.ticket;
+  async load(loader, { mode = this.mode, sort = this.sort, reset = false } = {}) {
+    const tab = this.tab(mode, sort), ticket = ++tab.ticket;
     const cursor = reset ? 0 : tab.cursor ?? 0;
     tab.loading = true;
     try {
-      const response = await loader({ mode, cursor });
+      const response = await loader({ mode, sort, cursor });
       if (ticket !== tab.ticket) return { stale: true, current: false };
       tab.ids = [...new Set([...(reset ? [] : tab.ids || []), ...response.articles.map(a => a.id)])];
       if (response.sources) {
@@ -38,7 +44,7 @@ export class FeedSession {
           [lane, [...new Set([...(reset ? [] : tab.sources?.[lane] || []), ...ids])]]));
       }
       tab.cursor = response.nextCursor;
-      return { response, stale: false, current: this.mode === mode };
+      return { response, stale: false, current: this.mode === mode && this.sort === sort };
     } catch (error) {
       if (ticket !== tab.ticket) return { stale: true, current: false };
       throw error;

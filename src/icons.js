@@ -1,4 +1,7 @@
 const paths = {
+  sort: '<path d="M8 4v16m-4-4 4 4 4-4M16 20V4m-4 4 4-4 4 4"/>',
+  'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+  rise: '<path d="M4 20V14m8 6V9m8 11V4"/>',
   'drag-handle': '<path d="M5 8h14M5 12h14M5 16h14"/>',
   pin: '<path d="M8 3h8v2h-1v5l3 4v2H6v-2l3-4V5H8Z"/><path d="M12 16v6"/>',
   'timeline-settings': '<path d="M3 7h9m4 0h5M3 17h3m4 0h11"/><circle cx="14" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',

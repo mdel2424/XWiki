@@ -6,7 +6,13 @@ export const TOPIC_ALIASES = { 'computer-science': 'computing', physics: 'scienc
 export const canonicalTopic = id => TOPIC_ALIASES[id] || id;
 
 export const HOME_FEEDS = [{ id: 'for-you', label: 'For you' }, ...TOPICS];
-export const RANKED_FEEDS = [{ id: 'top', label: 'Top' }, { id: 'rising', label: 'Rising' }];
+export const FEED_SORTS = [
+  { id: 'for-you', label: 'For You (HN)', description: 'Personalized discoveries', icon: 'shuffle' },
+  { id: 'wikipedia', label: 'Top (Wikipedia)', description: 'Popular on Wikipedia', icon: 'book' },
+  { id: 'top', label: 'Top (HN)', description: 'Most linked · all time', icon: 'trend' },
+  { id: 'rising', label: 'Rising (HN)', description: 'Most linked · past six months', icon: 'rise' },
+];
+export const sortFor = id => FEED_SORTS.find(sort => sort.id === id);
 export const topicFor = mode => TOPICS.find(topic => topic.id === canonicalTopic(mode));
 export const isPersonalized = mode => HOME_FEEDS.some(feed => feed.id === canonicalTopic(mode));
 

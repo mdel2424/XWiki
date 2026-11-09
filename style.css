@@ -26,6 +26,20 @@ h1,h2,h3,h4,p { margin:0; }
 .feed-tabs button[aria-selected="true"] { color:var(--text); }
 .feed-tabs button[aria-selected="true"]::after { content:''; position:absolute; height:4px; width:55px; border-radius:4px; bottom:0; left:50%; transform:translateX(-50%); background:var(--blue); }
 .home-tabs-host { min-width:0; }
+.feed-sort { position:relative; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 16px; border-top:1px solid var(--line); }
+.sort-button { display:inline-flex; align-items:center; gap:8px; min-height:36px; flex-shrink:0; padding:6px 12px; border:1px solid var(--line); border-radius:999px; font-size:13px; font-weight:700; }
+.sort-button:hover,.sort-button[aria-expanded="true"] { background:var(--soft); border-color:#536471; }
+.sort-button .icon { width:16px; height:16px; }
+.sort-button .icon:last-child { width:13px; height:13px; color:var(--muted); }
+.sort-hint { color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sort-menu { position:absolute; left:16px; top:calc(100% - 4px); width:288px; max-width:calc(100vw - 34px); max-height:calc(100dvh - 185px); overflow:auto; padding:6px; background:var(--bg); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 30px #000b,0 0 12px #ffffff12; z-index:20; }
+.sort-menu[hidden] { display:none; }
+.sort-menu button { display:flex; align-items:center; gap:12px; width:100%; padding:12px; min-height:64px; text-align:left; border-radius:10px; }
+.sort-menu button:hover,.sort-menu button:focus-visible { background:var(--soft); }
+.sort-menu button > .icon { width:19px; height:19px; color:var(--muted); }
+.sort-menu strong { display:block; font-size:14px; font-weight:700; }
+.sort-menu small { display:block; color:var(--muted); margin-top:3px; font-size:12px; }
+.sort-check { display:grid; place-items:center; margin-left:auto; width:20px; color:var(--blue); }
 .topics-button { display:grid; place-items:center; width:40px; height:40px; padding:0; border-radius:50%; color:var(--text); }
 .topics-button:hover { background:var(--soft); }
 .topics-button .icon { width:20px; height:20px; }

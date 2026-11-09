@@ -168,3 +168,72 @@ test('FYP samples the full archive, shuffles featured ranks, and keeps 8:1:1 acr
     assert.notDeepEqual(fresh.sources[lane], again.sources[lane], `${lane} changes with refresh`);
   }
 });
+
+test('Home sorts rank the whole topic, paginate independently, and refill around hidden posts', async () => {
+  const count = 3000, generation = 'v-sorts';
+  const topics = { math: [45, 2500, 2700, 2999], computing: [1, 2] };
+  const scores = Array.from({ length: count }, (_, i) => i === 2700 ? null : i === 45 ? 0 : i);
+  const order = Array.from({ length: count }, (_, i) => i).sort((a, b) => (scores[a] === null) - (scores[b] === null) || (scores[b] || 0) - (scores[a] || 0) || a - b);
+  let wikipediaPath = 'wikipedia-a.json';
+  const requests = [];
+  const catalog = new StaticCatalog({ base: new URL('https://example.test/catalog/'), fetcher: async raw => {
+    const file = new URL(raw).pathname;
+    requests.push(file);
+    let value;
+    if (file.endsWith('manifest.json')) value = { kind: 'wikihack-static', version: 1, generation, articleCount: count,
+      articleShardSize: 256, rankShardSize: 512, risingCount: 3,
+      topicIndex: { path: 'topics.json' }, wikipediaIndex: { path: wikipediaPath } };
+    else if (file.endsWith('/topics.json')) value = { kind: 'xwiki-topic-index', version: 1, generation,
+      source: { kind: 'wikimedia-articletopic' }, coverage: { articles: count }, topics };
+    else if (file.includes('/wikipedia-')) value = { kind: 'xwiki-wikipedia-index', version: 1, generation,
+      source: { kind: 'wikimedia-popularity' }, coverage: { articles: count }, scores, order };
+    else if (file.includes('/rising/')) value = [2500, 45, 2999];
+    else if (file.includes('/articles/')) {
+      const start = Number(file.split('/').at(-1).split('.')[0]) * 256;
+      value = Array.from({ length: Math.min(256, count - start) }, (_, j) => ({ id: `en:${start + j}`, title: `Article ${start + j}`, _index: start + j, mentions: [] }));
+    } else throw new Error(`Unexpected file: ${file}`);
+    return { ok: true, json: async () => value };
+  } });
+  const ids = result => result.articles.map(article => article._index);
+  await catalog.open();
+  const top = await catalog.feed({ mode: 'math', sort: 'top', limit: 2, exclude: ['en:45'] });
+  assert.deepEqual(ids(top), [2500, 2700]);
+  assert.deepEqual(ids(await catalog.feed({ mode: 'math', sort: 'top', limit: 2, cursor: top.nextCursor })), [2999]);
+  const wikipedia = await catalog.feed({ mode: 'math', sort: 'wikipedia', limit: 2 });
+  assert.deepEqual(ids(wikipedia), [2999, 2500]);
+  const rest = await catalog.feed({ mode: 'math', sort: 'wikipedia', limit: 2, cursor: wikipedia.nextCursor });
+  assert.deepEqual(ids(rest), [45, 2700], 'Measured zero views ranks before unknown data');
+  assert.equal(rest.nextCursor, null);
+  assert.equal(wikipedia.articles[0].wikipediaPopularity, 2999);
+  assert.ok(wikipedia.articles.every(article => article.topics.includes('math')));
+  assert.deepEqual(ids(await catalog.feed({ mode: 'math', sort: 'rising', exclude: ['en:2500'] })), [45, 2999]);
+  assert.deepEqual(ids(await catalog.feed({ mode: 'computing', sort: 'wikipedia' })), [2, 1]);
+  assert.deepEqual(ids(await catalog.feed({ sort: 'wikipedia', limit: 1 })), [2999], 'All-topics Home uses the same global Wikipedia ranking');
+  assert.equal(requests.filter(file => file.endsWith('/wikipedia-a.json')).length, 1);
+  wikipediaPath = 'wikipedia-b.json';
+  await catalog.open();
+  await catalog.feed({ mode: 'math', sort: 'wikipedia' });
+  assert.equal(requests.filter(file => file.endsWith('/wikipedia-b.json')).length, 1, 'Republished Wikipedia popularity invalidates the cached index');
+});
+
+test('Wikipedia sorting collapses redirects without losing a topic assigned to an alias', async () => {
+  const manifest = { kind: 'wikihack-static', version: 1, generation: 'v-alias', articleCount: 3,
+    articleShardSize: 256, topicIndex: { path: 'topics.json' }, wikipediaIndex: { path: 'wikipedia.json' } };
+  const catalog = new StaticCatalog({ base: new URL('https://example.test/catalog/'), fetcher: async raw => {
+    const file = new URL(raw).pathname;
+    const value = file.endsWith('/manifest.json') ? manifest : file.endsWith('/topics.json') ? {
+      kind: 'xwiki-topic-index', version: 1, generation: 'v-alias', source: { kind: 'wikimedia-articletopic' }, coverage: { articles: 3 }, topics: { math: [0] },
+    } : file.endsWith('/wikipedia.json') ? {
+      kind: 'xwiki-wikipedia-index', version: 1, generation: 'v-alias', source: { kind: 'wikimedia-popularity' }, coverage: { articles: 3 },
+      scores: [5, 5, 0], order: [1, 2], redirects: { 0: 1 },
+    } : [{ id: 'en:Alias', title: 'Alias', _index: 0, mentions: [] }, { id: 'en:Canonical', title: 'Canonical', _index: 1, mentions: [] },
+      { id: 'en:Other', title: 'Other', _index: 2, mentions: [] }];
+    return { ok: true, json: async () => value };
+  } });
+  await catalog.open();
+  const result = await catalog.feed({ mode: 'math', sort: 'wikipedia' });
+  assert.deepEqual(result.articles.map(article => article.id), ['en:Canonical']);
+  assert.ok(matchesTopic(result.articles[0], 'math'));
+  assert.equal(result.nextCursor, null);
+  assert.deepEqual((await catalog.feed({ sort: 'wikipedia' })).articles.map(article => article.id), ['en:Canonical', 'en:Other']);
+});

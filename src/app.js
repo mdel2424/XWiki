@@ -9,7 +9,7 @@ import { attachPullRefresh } from './pull-refresh.js';
 import { SAMPLE_ARTICLES } from './samples.js';
 import { icon } from './icons.js';
 import { excerpt, firstParagraph, wikipediaLink } from './reading.js';
-import { HOME_FEEDS, RANKED_FEEDS, homeFeeds, normalizePins, normalizeTopicOrder, isPersonalized, matchesTopic, topicFor } from './topics.js';
+import { HOME_FEEDS, FEED_SORTS, sortFor, homeFeeds, normalizePins, normalizeTopicOrder, matchesTopic, topicFor } from './topics.js';
 import { attachTopicReorder } from './topic-reorder.js';
 
 const $ = selector => document.querySelector(selector);
@@ -25,7 +25,7 @@ const profile = storedProfile.version === 1 && storedProfile.likes && storedProf
 const storedTopicOrder = readStorage('topic-order-v1', null);
 const state = {
   articles: cached.articles || [], profile,
-  settings: readStorage('settings', { images: true }), page: 'home', mode: 'for-you', homeMode: 'for-you', exploreMode: 'top',
+  settings: readStorage('settings', { images: true }), page: 'home', mode: 'for-you', homeMode: 'for-you', sort: 'for-you',
   visible: 12, order: [], query: '', backend: null, archive: null, searchIds: null, searchCursor: null,
   searchLoading: false,
   pins: normalizePins(readStorage('pinned-topics-v1', null)),
@@ -41,8 +41,9 @@ const paragraphText = article => firstParagraph(article.firstParagraph || (artic
 const collection = () => state.articles.length ? state.articles : SAMPLE_ARTICLES;
 const liked = article => Boolean(state.profile.likes[article.id]);
 const isHidden = article => hidden(article, state.profile);
-const isSearching = () => state.page === 'explore' && Boolean(state.query.trim());
-const isFeedPage = () => state.page === 'home' || state.page === 'explore' && !isSearching();
+const isSearching = () => state.page === 'explore';
+const isFeedPage = () => state.page === 'home';
+const isPersonalizedFeed = () => state.sort === 'for-you';
 const pullIsRefreshing = () => $('#pull-refresh').dataset.state === 'refreshing';
 const metrics = article => ({
   people: article.metrics?.distinctLinkers ?? uniqueAuthors(article),
@@ -58,15 +59,17 @@ function toast(message, undo = null) {
 }
 function cache() { writeStorage('feed', { articles: state.articles.slice(0, 600) }); }
 function ranked(articles = collection(), offset = 0) {
-  const tabIds = state.backend === 'static' && (!state.offline || feeds.tab().ids !== null) ? new Set(feeds.tab().ids || []) : null;
+  const allowOfflinePreview = state.offline && isPersonalizedFeed() && !topicFor(state.mode);
+  const tabIds = state.backend === 'static' && (!allowOfflinePreview || feeds.tab().ids !== null) ? new Set(feeds.tab().ids || []) : null;
   const eligible = articles.filter(a => !isHidden(a) && matchesTopic(a, state.mode) && (!tabIds || tabIds.has(a.id)));
-  if (isPersonalized(state.mode)) return recommend(eligible, state.profile, { seed: state.seed, sources: feeds.tab().sources, offset });
+  if (isPersonalizedFeed()) return recommend(eligible, state.profile, { seed: state.seed, sources: feeds.tab().sources, offset });
   // Published rank files are authoritative; keep their complete-archive order.
   if (state.backend === 'static' && feeds.tab().ids !== null) {
     const byId = new Map(eligible.map(a => [a.id, a]));
     return (feeds.tab().ids || []).map(id => byId.get(id)).filter(Boolean);
   }
-  if (state.mode === 'top' || state.mode === 'rising') return rankArticles(eligible, state.mode);
+  if (state.sort === 'wikipedia') return [...eligible].sort((a, b) => (b.wikipediaPopularity ?? -1) - (a.wikipediaPopularity ?? -1));
+  if (state.sort === 'top' || state.sort === 'rising') return rankArticles(eligible, state.sort);
   return eligible;
 }
 function resetOrder(preserve = []) {
@@ -80,6 +83,7 @@ function viewArticles() {
   if (isFeedPage() && !state.ready) return [];
   if (state.page === 'likes') return Object.values(state.profile.likes).filter(a => !isHidden(a)).reverse();
   if (isSearching()) {
+    if (!state.query.trim()) return [];
     return state.searchIds ? state.searchIds.map(id => collection().find(a => a.id === id)).filter(a => a && !isHidden(a)) : searchArticles(collection().filter(a => !isHidden(a)), state.query);
   }
   const map = new Map(collection().map(a => [a.id, a]));
@@ -91,11 +95,40 @@ function nav(page, label, name) {
 function feedTabs(items, label) {
   return `<div class="feed-tabs" role="tablist" aria-label="${label}">${items.map(({ id, label }) => {
     const selected = state.mode === id && !isSearching();
-    return `<button role="tab" id="tab-${id}" aria-controls="timeline" aria-selected="${selected}" tabindex="${selected || isSearching() && id === state.exploreMode ? 0 : -1}" data-mode="${id}">${label}</button>`;
+    return `<button role="tab" id="tab-${id}" aria-controls="timeline" aria-selected="${selected}" tabindex="${selected ? 0 : -1}" data-mode="${id}">${label}</button>`;
   }).join('')}</div>`;
 }
 function homeTabBar() {
-  return `<div class="home-tabs-host">${feedTabs(homeFeeds(state.pins, state.homeMode, state.topicOrder), 'Home feeds')}</div>`;
+  return `<div class="home-tabs-host">${feedTabs(homeFeeds(state.pins, state.homeMode, state.topicOrder), 'Home feeds')}</div>${sortControl()}`;
+}
+function sortControl() {
+  const current = sortFor(state.sort);
+  return `<div class="feed-sort"><button class="sort-button" data-action="sort-menu" id="sort-button" aria-label="Sort posts: ${current.label}" aria-haspopup="menu" aria-expanded="false" aria-controls="sort-menu">${icon('sort')}<span>${current.label}</span>${icon('chevron-down')}</button><span class="sort-hint">${current.description}</span><div class="sort-menu" id="sort-menu" role="menu" aria-label="Sort posts" hidden>${FEED_SORTS.map(sort => `<button role="menuitemradio" aria-label="${sort.label}" aria-checked="${state.sort === sort.id}" data-action="sort-feed" data-sort="${sort.id}" tabindex="-1">${icon(sort.icon)}<span><strong>${sort.label}</strong><small>${sort.description}</small></span><span class="sort-check">${state.sort === sort.id ? icon('check') : ''}</span></button>`).join('')}</div></div>`;
+}
+function closeSortMenu(focus = false) {
+  const menu = $('#sort-menu');
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  $('#sort-button').setAttribute('aria-expanded', 'false');
+  if (focus) $('#sort-button').focus({ preventScroll: true });
+}
+function openSortMenu() {
+  const menu = $('#sort-menu');
+  if (!menu) return;
+  if (!menu.hidden) { closeSortMenu(true); return; }
+  menu.hidden = false;
+  $('#sort-button').setAttribute('aria-expanded', 'true');
+  menu.querySelector('[aria-checked="true"]').focus({ preventScroll: true });
+}
+function selectSort(sort) {
+  if (!sortFor(sort)) return;
+  if (state.sort === sort) { closeSortMenu(true); return; }
+  state.sort = sort;
+  state.visible = 12; homeVisible = 12; homeScroll = 0;
+  activateFeed(state.homeMode);
+  shell(); scrollTo(0, 0);
+  $('#sort-button').focus({ preventScroll: true });
+  ensureFeed();
 }
 function browseTopics() {
   showSheet('Topics', `<p class="topics-intro">Pin favorites. Drag to reorder.</p><p id="topic-sort-hint" class="sr-only">On a reorder handle, press Space to pick up a topic, use arrow keys to move it, then Space or Enter to save. Escape cancels.</p><p id="pin-status" class="sr-only" role="status" aria-live="polite">${state.pins.length} topics pinned</p><p id="topic-order-status" class="sr-only" role="status" aria-live="polite"></p><div class="topic-list" role="list" aria-label="Topic order">${normalizeTopicOrder(state.topicOrder).map(id => {
@@ -139,15 +172,16 @@ function shell() {
     <header class="app-header"><div class="topbar"><button class="settings-button" data-nav="settings" aria-label="Settings">${icon('settings')}</button>
       <button class="header-brand" data-nav="home" aria-label="XWiki home">XWiki</button>
       ${state.page === 'home' ? `<button class="topics-button" data-action="topics" aria-label="Browse topics" aria-haspopup="dialog" title="Topics">${icon('timeline-settings')}</button>` : '<span class="header-spacer" aria-hidden="true"></span>'}</div>
-      ${state.page === 'home' ? homeTabBar() : state.page === 'explore' ? `<h1 class="sr-only">Search</h1><div class="search-wrap"><label class="search-field">${icon('search')}<input id="search" type="search" aria-label="Search articles" placeholder="Search Wikipedia articles on HN" value="${esc(state.query)}" autocomplete="off"></label></div>${feedTabs(RANKED_FEEDS, 'Archive rankings')}` : `<div class="page-heading"><h1>${({ likes: 'Likes', settings: 'Settings' })[state.page]}</h1></div>`}
+      ${state.page === 'home' ? homeTabBar() : state.page === 'explore' ? `<h1 class="sr-only">Search</h1><div class="search-wrap"><label class="search-field">${icon('search')}<input id="search" type="search" aria-label="Search articles" placeholder="Search Wikipedia articles on HN" value="${esc(state.query)}" autocomplete="off"></label></div>` : `<div class="page-heading"><h1>${({ likes: 'Likes', settings: 'Settings' })[state.page]}</h1></div>`}
     </header><div id="page-content"></div>
     <nav class="bottom-nav" aria-label="Navigation">${nav('home', 'Home', 'home')}${nav('explore', 'Search', 'search')}${nav('likes', 'Likes', 'heart')}${nav('settings', 'Settings', 'settings')}</nav>
   </main>`;
   renderPage();
+  if (state.page === 'home') $(`#tab-${state.mode}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 function sourceNote() {
   const text = !state.ready ? 'Loading your feed…' : !state.articles.length ? (state.loading ? 'Connecting · preview collection' : 'Offline preview · no invented HN activity') :
-    state.backend === 'static' ? `${state.archive?.articles?.toLocaleString() || 'Archive'} articles · ${topicFor(state.mode) ? `Personalized · ${topicFor(state.mode).label}` : 'Personalized for you'}` : 'Static catalogue not built';
+    state.backend === 'static' ? `${state.archive?.articles?.toLocaleString() || 'Archive'} articles · ${isPersonalizedFeed() ? topicFor(state.mode) ? `Personalized · ${topicFor(state.mode).label}` : 'Personalized for you' : sortFor(state.sort).label}` : 'Static catalogue not built';
   return `<button class="source-note" data-action="sources"><span class="status-dot"></span>${esc(text)}${icon('info')}</button>`;
 }
 function renderPage() {
@@ -196,11 +230,12 @@ function renderTimeline() {
   for (const button of document.querySelectorAll('[data-mode]')) {
     const selected = button.dataset.mode === state.mode && !isSearching();
     button.setAttribute('aria-selected', String(selected));
-    button.tabIndex = selected || isSearching() && button.dataset.mode === state.exploreMode ? 0 : -1;
+    button.tabIndex = selected ? 0 : -1;
   }
   const topic = state.page === 'home' && topicFor(state.mode);
-  const emptyTitle = topic ? `No ${topic.label} posts yet.` : state.page === 'likes' ? 'Give your curiosity a heart.' : 'Nothing here yet.';
-  const emptyText = topic ? 'Try another topic or refresh this list.' : state.page === 'likes' ? 'Like an article to find more posts with related categories.' : 'Try another search or load more articles.';
+  const feedUnavailable = isFeedPage() && state.offline;
+  const emptyTitle = feedUnavailable ? 'Couldn’t load this feed.' : isSearching() && !state.query.trim() ? 'Find your next rabbit hole.' : topic ? `No ${topic.label} posts yet.` : state.page === 'likes' ? 'Give your curiosity a heart.' : 'Nothing here yet.';
+  const emptyText = feedUnavailable ? 'Use Retry connection below to try again.' : isSearching() && !state.query.trim() ? 'Search Wikipedia articles shared on Hacker News.' : topic ? 'Try another topic or refresh this list.' : state.page === 'likes' ? 'Like an article to find more posts with related categories.' : 'Try another search or load more articles.';
   $('#timeline').innerHTML = articles.length ? articles.slice(0, state.visible).map(card).join('') : waiting ? (pullIsRefreshing() ? '' : '<div class="feed-loading" role="status"><span class="loader" aria-hidden="true"></span><span>Loading posts…</span></div>') : `<div class="empty-state">${icon(state.page === 'likes' ? 'heart' : 'search')}<h2>${esc(emptyTitle)}</h2><p>${esc(emptyText)}</p></div>`;
   renderMore(articles); hydrate(articles.slice(0, state.visible)); hydrateParagraphs(articles.slice(0, state.visible));
 }
@@ -309,19 +344,19 @@ async function context(article, cursor = 0) {
 }
 function sources() {
   const data = state.archive;
-  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your For you feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. For you mixes 80% weighted random discoveries, 10% Rising and 10% Top. Articles linked by fewer than five people appear rarely. The discovery draw favors broader HN interest, especially articles linked by ten or more people, while keeping some room for rare discoveries. Top and Rising picks in For you are shuffled from each ranking’s leading 1,000 articles. Hearts influence discovery order. Recent Wikipedia readership gently favors widely read articles, with the strongest penalty for posts that also have few HN linkers. Home topic lists use <a href="https://wikitech.wikimedia.org/wiki/Search/articletopic" ${external}>Wikipedia’s article-topic predictions</a>, grouped into 21 subjects. Articles can belong to more than one subject. Each list keeps your personalized ranking and discovery mix. Browse Topics to open any list and pin favorites to Home. Pins stay saved in this browser. Search contains the Top and Rising pages. Top counts distinct HN linkers across all time; Rising ranks distinct linkers during the six calendar months before the ranking was built.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
+  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your For you feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. For you mixes 80% weighted random discoveries, 10% Rising and 10% Top. Articles linked by fewer than five people appear rarely. The discovery draw favors broader HN interest, especially articles linked by ten or more people, while keeping some room for rare discoveries. Top and Rising picks in For you are shuffled from each ranking’s leading 1,000 articles. Hearts influence discovery order. Recent Wikipedia readership gently favors widely read articles, with the strongest penalty for posts that also have few HN linkers. Home topic lists use <a href="https://wikitech.wikimedia.org/wiki/Search/articletopic" ${external}>Wikipedia’s article-topic predictions</a>, grouped into 21 subjects. Articles can belong to more than one subject. Each list keeps your personalized ranking and discovery mix. Browse Topics to open any list and pin favorites to Home. Pins stay saved in this browser. Use the sort button beneath Home’s topics to switch between For You (HN), Top (Wikipedia), Top (HN), and Rising (HN). Every sort stays within the selected topic. Top (Wikipedia) uses Wikipedia’s indexed, pageview-based popularity, adjusted for traffic across language editions. Top (HN) counts distinct HN linkers across all time; Rising (HN) ranks distinct linkers during the six calendar months before the ranking was built. Search finds articles across the archive.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
 }
 function navigate(page) {
   if (state.page === 'home') { homeScroll = scrollY; homeVisible = state.visible; }
   if (page === state.page && page === 'home') { scrollTo(0, 0); return; }
   observer?.disconnect(); state.page = page; state.visible = page === 'home' ? homeVisible : 12;
-  activateFeed(page === 'explore' ? state.exploreMode : state.homeMode);
+  activateFeed(state.homeMode);
   shell(); scrollTo(0, page === 'home' ? homeScroll : 0);
   if (page === 'explore') $('#search')?.focus({ preventScroll: true });
   ensureFeed();
 }
 function activateFeed(mode) {
-  feeds.select(mode); state.mode = mode;
+  feeds.select(mode, state.sort); state.mode = mode;
   state.loading = !state.ready || feeds.tab().loading || state.backend === 'static' && feeds.tab().ids === null;
   state.paused = feeds.tab().cursor === null;
   resetOrder();
@@ -329,7 +364,7 @@ function activateFeed(mode) {
 function ensureFeed() {
   if (state.backend !== 'static') return;
   if (isSearching()) {
-    if (state.searchIds === null) searchCatalogue(state.query);
+    if (state.query.trim() && state.searchIds === null) searchCatalogue(state.query);
   } else if (isFeedPage() && feeds.tab().ids === null && !feeds.tab().loading) load({ refresh: true });
 }
 async function hydrate(articles) {
@@ -351,20 +386,20 @@ async function hydrate(articles) {
   } catch { /* Original article and HN links remain available. */ }
 }
 async function load({ refresh = false, preserve = null } = {}) {
-  const requestedMode = state.mode;
+  const requestedMode = state.mode, requestedSort = state.sort;
   if (!refresh && state.loading) return;
   state.loading = true; state.offline = false; observer?.disconnect(); renderMore();
   try {
     let incoming;
     if (state.backend === 'static') {
-      const pending = feeds.load(async ({ mode, cursor }) => {
-        const result = await catalog.feed({ mode, cursor, mix: state.seed, exclude: [...(refresh ? [] : feeds.tab(mode).ids || []), ...Object.keys(state.profile.seen || {}), ...Object.keys(state.profile.rejected)] });
-        if (isPersonalized(mode)) {
+      const pending = feeds.load(async ({ mode, sort, cursor }) => {
+        const result = await catalog.feed({ mode, sort, cursor, mix: state.seed, exclude: [...(refresh ? [] : feeds.tab(mode, sort).ids || []), ...Object.keys(state.profile.seen || {}), ...Object.keys(state.profile.rejected)] });
+        if (sort === 'for-you') {
           const saved = new Map(state.articles.map(article => [article.id, article.readership]));
           result.articles = await fetchReadership(result.articles.map(article => ({ ...article, readership: saved.get(article.id) || article.readership })));
         }
         return result;
-      }, { mode: requestedMode, reset: refresh });
+      }, { mode: requestedMode, sort: requestedSort, reset: refresh });
       renderTimeline();
       const result = await pending;
       if (result.stale) return;
@@ -379,10 +414,10 @@ async function load({ refresh = false, preserve = null } = {}) {
     else resetOrder(state.order);
     cache();
   } catch {
-    if (requestedMode === state.mode) {
+    if (requestedMode === state.mode && requestedSort === state.sort) {
       state.offline = true;
       if (!state.ready || feeds.tab().ids === null) resetOrder();
-      toast('Couldn’t refresh. Your cached collection is available.');
+      toast(feeds.tab().ids !== null || (isPersonalizedFeed() && !topicFor(state.mode)) ? 'Couldn’t refresh. Your cached collection is available.' : 'Couldn’t load this sort. Retry the connection to try again.');
     }
   }
   finally {
@@ -393,12 +428,18 @@ async function load({ refresh = false, preserve = null } = {}) {
 async function refreshFeed() {
   if (state.page !== 'home' || state.loading || refreshingFeed) return;
   refreshingFeed = true;
-  const mode = state.mode;
+  const mode = state.mode, sort = state.sort;
   state.seed++;
   state.visible = 12;
   try {
-    try { const manifest = await catalog.open(); state.archive = manifest.coverage; state.backend = 'static'; } catch { /* Keep the cached collection available offline. */ }
-    if (state.page === 'home' && mode === state.mode) await load({ refresh: true });
+    try {
+      const previous = catalog.manifest, manifest = await catalog.open();
+      if (previous?.generation !== manifest.generation || previous?.topicIndex?.path !== manifest.topicIndex?.path ||
+          previous?.wikipediaIndex?.path !== manifest.wikipediaIndex?.path || previous?.risingPath !== manifest.risingPath ||
+          previous?.discoveryWeights !== manifest.discoveryWeights) feeds.invalidate();
+      state.archive = manifest.coverage; state.backend = 'static';
+    } catch { /* Keep the cached collection available offline. */ }
+    if (state.page === 'home' && mode === state.mode && sort === state.sort) await load({ refresh: true });
   } finally { refreshingFeed = false; }
 }
 async function loadMore() {
@@ -408,13 +449,8 @@ async function loadMore() {
   else if (isSearching() && state.searchCursor !== null) await searchCatalogue(state.query, state.searchCursor);
 }
 function selectFeed(mode) {
-  const items = state.page === 'home' ? HOME_FEEDS : RANKED_FEEDS;
-  if (!items.some(feed => feed.id === mode)) return;
-  if (state.page === 'home') state.homeMode = mode;
-  else {
-    state.exploreMode = mode; state.query = ''; state.searchLoading = false;
-    searchTicket++; clearTimeout(searchTimer);
-  }
+  if (!HOME_FEEDS.some(feed => feed.id === mode)) return;
+  state.homeMode = mode;
   state.visible = 12; activateFeed(mode);
   shell(); scrollTo(0, 0);
   const tab = $(`#tab-${state.mode}`);
@@ -428,6 +464,7 @@ function closeMenus() {
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-action], [data-nav], [data-mode]');
   if (!event.target.closest('.menu-wrap')) closeMenus();
+  if (!event.target.closest('.feed-sort')) closeSortMenu();
   if (!button) {
     const post = event.target.closest('.article-card');
     if (post && !event.defaultPrevented && event.button === 0 &&
@@ -446,7 +483,9 @@ document.addEventListener('click', async event => {
     if (open) menu.querySelector('button').focus({ preventScroll: true }); return;
   }
   closeMenus();
-  if (action === 'topics') browseTopics();
+  if (action === 'sort-menu') openSortMenu();
+  else if (action === 'sort-feed') selectSort(button.dataset.sort);
+  else if (action === 'topics') browseTopics();
   else if (action === 'pin-topic') togglePin(button);
   else if (action === 'open-topic' && topicFor(button.dataset.topic)) { closeSheet(); selectFeed(button.dataset.topic); }
   else if (action === 'close') closeSheet();
@@ -454,13 +493,13 @@ document.addEventListener('click', async event => {
   else if (action === 'expand' && article) await toggleParagraph(article);
   else if (action === 'context' && article) await context(article);
   else if (action === 'more-context' && article) await context(article, Number(button.dataset.cursor));
-  else if (action === 'why' && article) showSheet('Why this post?', `<h3>${esc(article.title)}</h3><p>${esc(isPersonalized(state.mode) ? article.recommendation?.reason || 'Discovered in Hacker News discussions.' : 'This feed is ranked by HN mentions, not your likes.')}</p><p class="muted">Hearts boost similar topics in For you and your topic lists. “Not interested” hides a post and downranks similar recommendations. You can reset this in Settings.</p>`, article.id);
+  else if (action === 'why' && article) showSheet('Why this post?', `<h3>${esc(article.title)}</h3><p>${esc(isPersonalizedFeed() ? article.recommendation?.reason || 'Discovered in Hacker News discussions.' : state.sort === 'wikipedia' ? 'Ranked by Wikipedia’s pageview-based popularity, adjusted for traffic across language editions.' : state.sort === 'rising' ? 'Ranked by distinct HN linkers over the last six calendar months.' : 'Ranked by distinct HN linkers across all time.')}</p><p class="muted">Hearts boost similar topics in For you and your topic lists. “Not interested” hides a post and downranks similar recommendations. You can reset this in Settings.</p>`, article.id);
   else if (action === 'like' && article) {
     const isLiked = liked(article);
     if (!persistProfile(feedback(state.profile, article, isLiked ? 'unlike' : 'like'))) return;
-    if (state.page === 'home' && isPersonalized(state.mode)) rerankAfter(article); else anchoredRender(article.id);
+    if (state.page === 'home' && isPersonalizedFeed()) rerankAfter(article); else anchoredRender(article.id);
     if (!isLiked) toast('Liked. You’ll see more related posts in For you.');
-    if (state.backend === 'static' && state.page === 'home' && isPersonalized(state.mode) && !isLiked && !state.loading) {
+    if (state.backend === 'static' && state.page === 'home' && isPersonalizedFeed() && !isLiked && !state.loading) {
       await load({ refresh: true, preserve: state.order.slice(0, state.order.indexOf(article.id) + 1) });
     }
   } else if (action === 'not-interested' && article) {
@@ -497,7 +536,14 @@ document.addEventListener('change', event => {
   if (event.target.id === 'images-toggle') { state.settings.images = event.target.checked; writeStorage('settings', state.settings); }
 });
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') closeMenus();
+  if (event.key === 'Escape') { closeMenus(); closeSortMenu(true); }
+  if (event.target.id === 'sort-button' && ['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); openSortMenu(); }
+  const sortMenu = event.target.closest('.sort-menu');
+  if (sortMenu && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault(); const items = [...sortMenu.querySelectorAll('button')], index = items.indexOf(event.target);
+    items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+  }
+  if (sortMenu && event.key === 'Tab') { event.preventDefault(); closeSortMenu(true); }
   if (event.key === '/' && !$('#sheet').open && document.activeElement.tagName !== 'INPUT') { event.preventDefault(); navigate('explore'); }
   if (event.key.toLowerCase() === 'r' && !event.ctrlKey && !event.metaKey && !event.altKey &&
       !$('#sheet').open && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) { event.preventDefault(); refreshFeed(); }
@@ -511,7 +557,7 @@ document.addEventListener('keydown', event => {
 $('#sheet').addEventListener('click', event => { if (event.target === $('#sheet')) closeSheet(); });
 $('#sheet').addEventListener('close', () => { generation++; returnFocus?.focus({ preventScroll: true }); });
 document.addEventListener('error', event => { if (event.target.tagName === 'IMG') recoverImage(event.target); }, true);
-window.addEventListener('online', () => { if (state.offline) load({ refresh: true }); });
+window.addEventListener('online', () => { if (state.offline && state.page === 'home') load({ refresh: true }); });
 
 attachPullRefresh({
   target: document, atTop: () => scrollY <= 0,

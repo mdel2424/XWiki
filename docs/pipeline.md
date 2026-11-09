@@ -34,9 +34,9 @@ URL processing covers HTTP/HTTPS, mobile hosts, language preservation, URL-encod
 
 ## Ranking
 
-Top counts distinct non-deleted authors per canonical article. Multiple links from one HN item/article pair count once; multiple posts by the same author do not increase distinct-linker count. Rising uses the same principle over the last six calendar months, as of the latest statistics rebuild. Full mention totals remain independent from the separate paginated comment files.
+Top (HN) counts distinct non-deleted authors per canonical article. Multiple links from one HN item/article pair count once; multiple posts by the same author do not increase distinct-linker count. Rising (HN) uses the same principle over the last six calendar months, as of the latest statistics rebuild. Full mention totals remain independent from the separate paginated comment files.
 
-For you retrieves separate random, Rising and Top candidate pools. Eight posts in each ten-post block come from archive-wide weighted random draws, one from Rising and one from Top. Featured picks are shuffled from the leading 1,000 positions in their respective ranking; the dedicated tabs remain ordered by rank. Each source has its own permutation cursor. Draws refill around posts already loaded, rejected or seen, preventing cross-page duplicates and source overlap. When an eligible source is exhausted, remaining discoveries fill its slots.
+For you retrieves separate random, Rising and Top candidate pools. Eight posts in each ten-post block come from archive-wide weighted random draws, one from Rising and one from Top. Featured picks are shuffled from the leading 1,000 positions in their respective ranking; the explicit Home sorts remain ordered by rank. Each source has its own permutation cursor. Draws refill around posts already loaded, rejected or seen, preventing cross-page duplicates and source overlap. When an eligible source is exhausted, remaining discoveries fill its slots.
 
 Discovery uses an exponential race without replacement. For fewer than five distinct linkers, weight is `0.02 * sqrt(max(1, count))`; otherwise it is `(min(count, 100) / 5)^0.65`. This gives under-five articles only 2–4% of a five-linker article's weight. Within the main pool, 20 linkers receive about 2.46 times the weight of five, and 100 receive about seven times the weight. The 100-linker cap avoids runaway concentration. The threshold suppresses the archive's dominant low-link tail; the exponent favors a typical draw with over ten linkers without removing rare discoveries. Repeated mentions from the same person do not increase the weight. A compact static count index lets the browser draw from the complete archive before fetching selected cards. The seeded permutation is cached for the session and paginated without repeated posts. Refresh creates a new draw. Top/Rising picks retain their separate uniform shuffle.
 
@@ -53,6 +53,22 @@ A local TF-IDF cosine model boosts discovery order using liked titles, descripti
 `npm run data:rank` can regenerate a six-month Rising index directly from the exported original comments, without importing the HN database again. It counts distinct non-deleted authors and mentions in the inclusive window, excluding future timestamps, then publishes an immutable index and atomically switches `risingPath` in the manifest. Original cards, all-time order and context blocks stay intact. Card `recent*` metrics from an older full export are not used to order the static tabs; the updated rank index is authoritative. Full exports produce the same six-month window.
 
 The global archive makes all-time candidates possible; before import the UI labels its preview collection. Content similarity can only be as good as the available Wikipedia metadata. On-demand browser metadata improves the current pool; `data:enrich` persists metadata for subsequent retrieval. Feedback is language-specific and does not perform cross-language semantic translation.
+
+## Home sorting and Wikipedia popularity
+
+Home separates the selected topic from its sort. For You (HN) is the default. Top (HN) uses the complete all-time rank order; Rising (HN) uses the published six-month rank order. Both are filtered by the selected topic before pagination, rather than filtering only a global first page. Hidden posts are skipped while refilling pages. Search only searches the archive, with no ranking tabs.
+
+Top (Wikipedia) uses the indexed [`popularity_score`](https://www.mediawiki.org/wiki/Extension:CirrusSearch/Schema#popularity_score) retrieved through `prop=cirrusdoc&cdincludes=popularity_score`. Wikimedia defines this as a page’s share of pageviews on its language wiki. To make scores comparable across language editions, the publisher multiplies that share by the edition’s mean daily traffic from `meta=siteviews&pvisdays=30`. These are traffic-adjusted popularity estimates, not exact per-article 30-day view counts. The separate live readership preference in For You still uses actual 30-day article view histories.
+
+```sh
+npm run data:wikipedia                 # Collect and publish; rerun to resume
+npm run data:wikipedia -- --export-only # Reuse cached scores and project traffic
+npm run data:wikipedia -- --refresh     # Refresh the Wikipedia snapshot
+```
+
+The ignored `.data/wikipedia-popularity.sqlite` cache stores canonical titles, native scores, project traffic, timestamps, and missing/unavailable/unsupported statuses. Collection uses batches of up to 50 titles, bounded request rate and concurrency, and retries for temporary failures. Literal pipes in invalid titles cannot split or break another article’s batch. Unavailable scores stay unknown rather than becoming zero; measured zero ranks above unknown data, and both remain in the archive.
+
+The publisher validates complete ordinal coverage, preserves score precision, writes a content-addressed index, and atomically updates `manifest.wikipediaIndex`. Standalone publication requires the collection to be complete. Full exports reuse cached values; newly imported uncached articles are marked explicitly in coverage, and `data:wikipedia` fills them in. Redirect aliases are collapsed to one canonical article in the Wikipedia order. Topic membership from any alias remains eligible. The client lazily loads one shared Wikipedia index, filters its full order by topic, and paginates without re-sorting each page. Likes do not change any explicit ranking. Topic/sort combinations keep independent session cursors, and stale responses cannot overwrite the active selection.
 
 ## Wikipedia topic predictions
 
@@ -88,4 +104,4 @@ The implementation was exercised with deterministic local fixtures, including in
 
 ## Static publication
 
-`pipeline/static_export.py` exports all articles and original linked comments from a consistent database snapshot. Cards, search postings, rank orders, ID aliases and comment blocks are split into lazily fetched files. Context offsets are checked against full mention totals. A generation identifier prevents mixing resource paths from different snapshots. The browser client in `src/static-catalog.js` handles candidate retrieval, prefix search and context pagination without `/api` endpoints. The full current site is approximately 616 MB; the build rejects output above 950 MB.
+`pipeline/static_export.py` exports all articles and original linked comments from a consistent database snapshot. Cards, search postings, rank orders, ID aliases and comment blocks are split into lazily fetched files. Context offsets are checked against full mention totals. A generation identifier prevents mixing resource paths from different snapshots. The browser client in `src/static-catalog.js` handles candidate retrieval, prefix search and context pagination without `/api` endpoints. The full current site is approximately 621 MB; the build rejects output above 950 MB.

@@ -22,7 +22,7 @@ function sample(count, start, size, seed) {
 export class StaticCatalog {
   constructor({ base = new URL('../data/catalog/', import.meta.url), fetcher = fetch } = {}) {
     this.base = new URL(base); this.fetcher = fetcher; this.manifest = null; this.cache = new Map(); this.discovery = null;
-    this.topicIndex = null; this.articleTopics = null; this.topicDataPromise = null;
+    this.topicIndex = null; this.articleTopics = null; this.topicDataPromise = null; this.wikipediaIndex = null; this.wikipediaPromise = null; this.wikipediaAliases = null;
   }
   async read(path, { fresh = false } = {}) {
     const url = new URL(path, this.base);
@@ -44,8 +44,9 @@ export class StaticCatalog {
     if (manifest.kind !== 'wikihack-static' || manifest.version !== 1 || !manifest.articleCount ||
         !/^v-[a-z0-9]+$/.test(manifest.generation)) throw new Error('Static catalogue is missing or unsupported.');
     if (this.manifest?.generation !== manifest.generation || this.manifest?.risingPath !== manifest.risingPath ||
-        this.manifest?.discoveryWeights !== manifest.discoveryWeights || this.manifest?.topicIndex?.path !== manifest.topicIndex?.path) {
-      this.cache.clear(); this.discovery = null; this.topicIndex = null; this.articleTopics = null; this.topicDataPromise = null;
+        this.manifest?.discoveryWeights !== manifest.discoveryWeights || this.manifest?.topicIndex?.path !== manifest.topicIndex?.path ||
+        this.manifest?.wikipediaIndex?.path !== manifest.wikipediaIndex?.path) {
+      this.cache.clear(); this.discovery = null; this.topicIndex = null; this.articleTopics = null; this.topicDataPromise = null; this.wikipediaIndex = null; this.wikipediaPromise = null; this.wikipediaAliases = null;
     }
     this.manifest = manifest;
     return manifest;
@@ -72,7 +73,9 @@ export class StaticCatalog {
     const shards = new Map(await Promise.all(groups.map(async group => [group, await this.read(this.file(`articles/${group}.json`))])));
     return unique.map(i => {
       const article = shards.get(Math.floor(i / size))[i % size];
-      return this.articleTopics ? { ...article, topics: this.articleTopics[i] || [] } : article;
+      const topics = this.articleTopics ? [...new Set([i, ...(this.wikipediaAliases?.get(i) || [])].flatMap(index => this.articleTopics[index] || []))] : null;
+      return { ...article, ...(topics ? { topics } : {}),
+        ...(this.wikipediaIndex ? { wikipediaPopularity: this.wikipediaIndex.scores[i] } : {}) };
     });
   }
   async index(id) {
@@ -143,12 +146,63 @@ export class StaticCatalog {
     const data = await this.topicData();
     return data.topics[topic.id] || [];
   }
-  async feed({ mode = 'for-you', cursor = 0, limit = 60, mix = 0, exclude = [] } = {}) {
-    if (!isPersonalized(mode)) {
-      const count = mode === 'rising' ? this.manifest.risingCount : this.manifest.articleCount;
-      const ids = mode === 'rising' ? await this.ranks('rising', cursor, limit) :
-        Array.from({ length: Math.max(0, Math.min(limit, count - cursor)) }, (_, i) => cursor + i);
-      return { articles: await this.cards(ids), nextCursor: cursor + limit < count ? cursor + limit : null, mode };
+  async wikipediaData() {
+    if (!this.manifest.wikipediaIndex?.path) throw new Error('Wikipedia popularity ranking is unavailable in this catalogue.');
+    if (!this.wikipediaPromise) {
+      const generation = this.manifest.generation, count = this.manifest.articleCount;
+      const pending = this.read(this.file(this.manifest.wikipediaIndex.path)).then(data => {
+        if (data.kind !== 'xwiki-wikipedia-index' || data.version !== 1 || data.generation !== generation ||
+            data.source?.kind !== 'wikimedia-popularity' || data.coverage?.articles !== count ||
+            !Array.isArray(data.scores) || data.scores.length !== count ||
+            data.scores.some(value => value !== null && (!Number.isFinite(value) || value < 0)) ||
+            !Array.isArray(data.order) || data.order.length > count || new Set(data.order).size !== data.order.length ||
+            data.order.some(i => !Number.isInteger(i) || i < 0 || i >= count)) throw new Error('Invalid Wikipedia popularity ranking.');
+        const representatives = new Set(data.order), aliases = new Map(), redirects = Object.entries(data.redirects || {});
+        if (data.order.length + redirects.length !== count) throw new Error('Incomplete Wikipedia popularity ranking.');
+        for (const [alias, target] of redirects) {
+          const index = Number(alias);
+          if (!Number.isInteger(index) || String(index) !== alias || index < 0 || index >= count ||
+              representatives.has(index) || !representatives.has(target)) throw new Error('Invalid Wikipedia redirect.');
+          if (!aliases.has(target)) aliases.set(target, []);
+          aliases.get(target).push(index);
+        }
+        for (let i = 1; i < data.order.length; i++) {
+          const previous = data.scores[data.order[i - 1]] ?? -1, current = data.scores[data.order[i]] ?? -1;
+          if (previous < current || previous === current && data.order[i - 1] > data.order[i]) throw new Error('Invalid Wikipedia popularity order.');
+        }
+        if (this.manifest.generation !== generation || this.wikipediaPromise !== pending) throw new Error('Catalogue changed while loading Wikipedia popularity.');
+        this.wikipediaIndex = data;
+        this.wikipediaAliases = aliases;
+        return data;
+      }).catch(error => { if (this.wikipediaPromise === pending) this.wikipediaPromise = null; throw error; });
+      this.wikipediaPromise = pending;
+    }
+    return this.wikipediaPromise;
+  }
+  async feed({ mode = 'for-you', sort = 'for-you', cursor = 0, limit = 60, mix = 0, exclude = [] } = {}) {
+    // Accept legacy callers, while Home now supplies topic and sort separately.
+    if (!isPersonalized(mode)) { sort = mode; mode = 'for-you'; }
+    if (sort !== 'for-you') {
+      const topic = topicFor(mode);
+      const candidates = topic ? await this.topicPool(topic) : null;
+      const allowed = candidates ? new Set(candidates) : null;
+      const hidden = new Set(exclude), articles = [];
+      let ids;
+      if (sort === 'wikipedia') {
+        const ranking = await this.wikipediaData();
+        const canonical = allowed ? new Set(candidates.map(i => ranking.redirects?.[i] ?? i)) : null;
+        ids = ranking.order.filter(i => !canonical || canonical.has(i));
+      }
+      else if (sort === 'top') ids = candidates || Array.from({ length: this.manifest.articleCount }, (_, i) => i);
+      else if (sort === 'rising') ids = (await this.ranks('rising', 0, this.manifest.risingCount)).filter(i => !allowed || allowed.has(i));
+      else throw new Error('Unknown feed sort.');
+      let position = Number.isInteger(cursor) ? cursor : 0;
+      while (articles.length < limit && position < ids.length) {
+        const batch = ids.slice(position, position + limit - articles.length);
+        position += batch.length;
+        for (const article of await this.cards(batch)) if (!hidden.has(article.id)) articles.push(article);
+      }
+      return { articles, nextCursor: position < ids.length ? position : null, mode, sort };
     }
     // Each lane owns its shuffled cursor. Refill around overlaps and seen posts
     // rather than counting the same article toward two quotas.

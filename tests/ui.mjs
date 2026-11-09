@@ -32,7 +32,7 @@ with db:
   url='https://en.wikipedia.org/wiki/'+title.replace(' ','_')
   ingest(db,[{'id':i*2+1,'type':'story','title':title,'by':'fixture-user'+str(i),'time':now-1000,'url':url}])
   a=wiki_url(url)
-  merge_metadata(db,a['id'],{**a,'extract':(topic+' is an interesting field of scientific discovery. ')*14,'description':topic,**({'firstParagraph':'Short first paragraph.'} if i==0 else {}),'categories':[topic],'topicPredictions':{model:0.9},'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
+  merge_metadata(db,a['id'],{**a,'extract':(topic+' is an interesting field of scientific discovery. ')*14,'description':topic,**({'firstParagraph':'Short first paragraph.'} if i==0 else {}),'categories':[topic],'topicPredictions':{model:0.9},'wikipediaPopularity':(i+1)*0.000001,'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
  for j,(topic,model) in enumerate([
   ('Ethics','Culture.Philosophy_and_religion'),('Archaeology','History_and_Society.History'),
   ('Genetics','STEM.Biology'),('Cognitive psychology','History_and_Society.Society'),
@@ -46,11 +46,17 @@ with db:
    title=topic+' '+str(k);url='https://en.wikipedia.org/wiki/'+title.replace(' ','_')
    ingest(db,[{'id':1000+j*3+k,'type':'story','title':title,'by':'new-topic-user','time':now-1000,'url':url}])
    a=wiki_url(url)
-   merge_metadata(db,a['id'],{**a,'description':topic,'extract':(topic+' is a field of study. ')*14,'categories':[topic],'topicPredictions':{model:0.9},'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
+   merge_metadata(db,a['id'],{**a,'description':topic,'extract':(topic+' is a field of study. ')*14,'categories':[topic],'topicPredictions':{model:0.9},'wikipediaPopularity':(31+j*3+k)*0.000001,'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
  resolve_threads(db);refresh_stats(db)
 export_static(db,sys.argv[2]+'/data/catalog')
 db.close()
 `, database, website]);
+  const fixtureManifest = JSON.parse(await readFile(path.join(website, 'data/catalog/manifest.json'), 'utf8'));
+  const fixtureRoot = path.join(website, 'data/catalog', fixtureManifest.generation);
+  const fixtureCards = JSON.parse(await readFile(path.join(fixtureRoot, 'articles/0.json'), 'utf8'));
+  const fixtureTopics = JSON.parse(await readFile(path.join(fixtureRoot, fixtureManifest.topicIndex.path), 'utf8')).topics;
+  const fixtureWikipedia = JSON.parse(await readFile(path.join(fixtureRoot, fixtureManifest.wikipediaIndex.path), 'utf8'));
+  const fixtureRising = JSON.parse(await readFile(path.join(fixtureRoot, 'rising/0.json'), 'utf8'));
   browser = await ({ firefox, chromium, webkit })[engine].launch({ headless: true });
   // Firefox uses a narrow desktop viewport for native mouse pointer events.
   // Chromium also exercises native touch input through its DevTools protocol.
@@ -260,20 +266,10 @@ db.close()
   await page.reload();
   await page.locator('.mention-label').first().waitFor();
   assert.equal(await page.locator(`.article-card[data-id="${seenId}"]`).count(), 0);
-  // Rising data is also fetched for FYP, so tab switching can use the cache.
-  // FeedSession tests separately hold delayed responses to verify race handling.
   await page.getByRole('button', { name: 'Search', exact: true }).click();
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Top', 'Rising']);
-  await page.getByRole('tab', { name: 'Rising', exact: true }).click();
-  await page.getByRole('tab', { name: 'Top', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
-  assert.equal(await page.getByRole('tab', { name: 'Top', exact: true }).getAttribute('aria-selected'), 'true');
-  for (const tab of ['Rising', 'Top']) {
-    await page.getByRole('tab', { name: tab, exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
-    assert.equal(await page.getByRole('tab', { name: tab, exact: true }).getAttribute('aria-selected'), 'true');
-    assert.equal(await page.locator(`.article-card[data-id="${seenId}"]`).count(), 0);
-  }
+  assert.equal(await page.getByRole('tab').count(), 0, 'Search has no ranking tabs');
+  assert.equal(await page.locator('.sort-button').count(), 0, 'Sorting belongs on Home');
+  assert.equal(await page.locator('.article-card').count(), 0, 'Empty Search does not display an unrelated feed');
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
   await page.evaluate(() => scrollTo(0, 0));
@@ -310,10 +306,9 @@ db.close()
   assert.equal(await shortPost.locator('.article-extract').textContent(), 'Short first paragraph.');
   assert.equal(await shortPost.locator('.read-more').count(), 0, 'Short paragraphs have no expansion control');
   }
-  await page.getByRole('tab', { name: 'Top', exact: true }).click();
-  assert.equal(await page.getByRole('searchbox', { name: 'Search articles' }).inputValue(), '');
-  await page.getByRole('tab', { name: 'Top', exact: true }).press('ArrowRight');
-  assert.equal(await page.getByRole('tab', { name: 'Rising', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.getByRole('searchbox', { name: 'Search articles' }).fill('');
+  assert.equal(await page.locator('.article-card').count(), 0, 'Clearing search restores the search prompt');
+  assert.equal(await page.getByRole('tab').count(), 0);
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
   const mathRequested = Promise.withResolvers(), releaseMath = Promise.withResolvers();
@@ -349,9 +344,83 @@ db.close()
   assert.equal(await page.locator(`[data-id="${topicId}"]`).getByRole('button', { name: 'Unlike article', exact: true }).count(), 1);
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/math-mobile-feed.png' });
+  const waitFeed = () => page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
+  const chooseSort = async label => {
+    await page.getByRole('button', { name: /^Sort posts:/ }).click();
+    await page.getByRole('menuitemradio', { name: label, exact: true }).click();
+  };
+  const expectedTitles = async (topic, sort) => {
+    const hidden = await page.evaluate(() => {
+      const profile = JSON.parse(localStorage.getItem('wikihack:profile-v1'));
+      return [...Object.keys(profile.seen || {}), ...Object.keys(profile.rejected || {})];
+    });
+    const allowed = new Set(fixtureTopics[topic]);
+    const indices = sort === 'wikipedia' ? fixtureWikipedia.order : sort === 'rising' ? fixtureRising : fixtureTopics[topic];
+    return indices.filter(i => allowed.has(i) && !hidden.includes(fixtureCards[i].id)).slice(0, 12).map(i => fixtureCards[i].title);
+  };
+  assert.equal(await page.getByRole('button', { name: 'Sort posts: For You (HN)', exact: true }).count(), 1);
+  const sortButtonBox = await page.locator('#sort-button').boundingBox();
+  const topicTabsBox = await page.locator('.home-tabs-host').boundingBox();
+  assert.ok(sortButtonBox.y >= topicTabsBox.y + topicTabsBox.height, 'Sort control sits beneath the topic tabs');
+  const wikipediaRequested = Promise.withResolvers(), releaseWikipedia = Promise.withResolvers();
+  await page.route('**/wikipedia-*.json', async route => { wikipediaRequested.resolve(); await releaseWikipedia.promise; await route.fallback(); });
+  await chooseSort('Top (Wikipedia)');
+  await wikipediaRequested.promise;
+  assert.equal(await page.locator('.article-card').count(), 0, 'Changing sort clears the previous sort while loading');
+  assert.equal(await page.locator('.loader:visible').count(), 1);
+  await chooseSort('Top (HN)');
+  await waitFeed();
+  assert.deepEqual(await page.locator('.article-title h2').allTextContents(), await expectedTitles('math', 'top'));
+  const wikipediaResponse = page.waitForResponse(response => /wikipedia-[^/]+\.json$/.test(response.url()));
+  releaseWikipedia.resolve(); await wikipediaResponse;
+  await waitFeed();
+  assert.equal(await page.getByRole('button', { name: 'Sort posts: Top (HN)', exact: true }).count(), 1, 'Late Wikipedia response cannot change the active sort');
+  assert.deepEqual(await page.locator('.article-title h2').allTextContents(), await expectedTitles('math', 'top'));
+  await page.unroute('**/wikipedia-*.json');
+  for (const [label, sort] of [['Top (Wikipedia)', 'wikipedia'], ['Top (HN)', 'top'], ['Rising (HN)', 'rising']]) {
+    await chooseSort(label); await waitFeed();
+    assert.deepEqual(await page.locator('.article-title h2').allTextContents(), await expectedTitles('math', sort), `${label} orders only Mathematics`);
+    const activeTopic = await page.getByRole('tab', { name: 'Mathematics', exact: true }).boundingBox();
+    assert.ok(activeTopic.x >= -1 && activeTopic.x + activeTopic.width <= 391, 'Sorting keeps the selected topic visible');
+  }
+  await chooseSort('Top (Wikipedia)'); await waitFeed();
+  await page.getByRole('tab', { name: 'Computing', exact: true }).click(); await waitFeed();
+  assert.equal(await page.getByRole('button', { name: 'Sort posts: Top (Wikipedia)', exact: true }).count(), 1);
+  assert.deepEqual(await page.locator('.article-title h2').allTextContents(), await expectedTitles('computing', 'wikipedia'), 'The selected sort follows topic changes');
+  const wikiOrderBeforeLike = await page.locator('.article-title h2').allTextContents();
+  const wikiLike = page.getByRole('button', { name: 'Like article', exact: true }).first();
+  await wikiLike.click();
+  assert.deepEqual(await page.locator('.article-title h2').allTextContents(), wikiOrderBeforeLike, 'Likes do not reorder Wikipedia rankings');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
-  assert.equal(await page.getByRole('tab', { name: 'Rising', exact: true }).getAttribute('aria-selected'), 'true');
-  await page.screenshot({ path: 'test-results/search-rankings.png' });
+  assert.equal(await page.getByRole('tab').count(), 0);
+  assert.equal(await page.locator('.sort-button').count(), 0);
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: 'Sort posts: Top (Wikipedia)', exact: true }).count(), 1, 'Navigation preserves the Home sort');
+  await page.locator('#sort-button').press('ArrowDown');
+  assert.equal(await page.getByRole('menuitemradio', { name: 'Top (Wikipedia)', exact: true }).getAttribute('aria-checked'), 'true');
+  await page.keyboard.press('End'); await page.keyboard.press('Enter'); await waitFeed();
+  assert.equal(await page.getByRole('button', { name: 'Sort posts: Rising (HN)', exact: true }).count(), 1);
+  await page.locator('#sort-button').click();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#sort-button').getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.locator('#sort-button').evaluate(button => button === document.activeElement), true);
+  for (const width of [320, 390, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.locator('#sort-button').click();
+    assert.equal(await page.getByRole('menuitemradio').count(), 4);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Sort menu fits ${width}px`);
+    await page.keyboard.press('Escape');
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#sort-button').click();
+  await page.screenshot({ path: 'test-results/feed-sorting.png' });
+  await page.keyboard.press('Escape');
+  await chooseSort('For You (HN)'); await waitFeed();
+  await page.getByRole('tab', { name: 'Mathematics', exact: true }).click(); await waitFeed();
+
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  assert.equal(await page.getByRole('tab').count(), 0, 'Search stays search-only after a topic visit');
+  await page.screenshot({ path: 'test-results/search.png' });
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: 'Mathematics', exact: true }).getAttribute('aria-selected'), 'true');
   await page.locator(`[data-id="${topicId}"]`).getByRole('button', { name: 'Mark as seen', exact: true }).click();
@@ -525,7 +594,7 @@ db.close()
   assert.ok(requests.some(url => url.includes('/search/')));
   assert.ok(requests.some(url => url.includes('/context/')));
   assert.ok(!requests.some(url => url.includes('/api/')));
-  console.log(`PASS (${engine}): personalized topic lists, Search rankings, delayed topic responses, shared feedback, dark For you, reading, actions, pull-to-refresh, archive context/search and responsive layout.`);
+  console.log(`PASS (${engine}): topic sorting, search-only navigation, delayed topic/sort responses, shared feedback, dark For you, reading, actions, pull-to-refresh, archive context/search and responsive layout.`);
 } finally {
   await browser?.close();
   await rm(temporary, { recursive: true, force: true });

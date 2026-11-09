@@ -17,6 +17,7 @@
     "data:fill-gaps": "node scripts/pipeline.mjs fill-gaps",
     "data:enrich": "node scripts/pipeline.mjs enrich",
     "data:weights": "python3 -m pipeline.discovery",
+    "data:wikipedia": "python3 -m pipeline.wikipedia",
     "data:topics": "python3 -m pipeline.topics",
     "data:rank": "python3 -m pipeline.ranking",
     "data:export": "node scripts/pipeline.mjs export",
