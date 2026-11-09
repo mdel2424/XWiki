@@ -14,6 +14,7 @@ import urllib.request
 import urllib.error
 from collections import Counter
 from pathlib import Path
+from .article_pages import is_main_page
 
 SOURCE = {'kind': 'wikimedia-popularity', 'field': 'popularity_score', 'metric': 'traffic-adjusted-pageview-share',
           'url': 'https://www.mediawiki.org/wiki/Extension:CirrusSearch/Schema#popularity_score',
@@ -32,6 +33,9 @@ def cache_db(path):
     db.execute('''CREATE TABLE IF NOT EXISTS project_traffic (
         lang TEXT PRIMARY KEY, daily_views REAL, days INTEGER NOT NULL,
         first_day TEXT, last_day TEXT, checked_at INTEGER NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS verified_readership (
+        lang TEXT NOT NULL, title TEXT NOT NULL, score REAL, days INTEGER NOT NULL,
+        checked_at INTEGER NOT NULL, PRIMARY KEY(lang,title))''')
     return db
 
 
@@ -194,13 +198,16 @@ def collect(catalog='data/catalog', cache='.data/wikipedia-popularity.sqlite', r
 def payload(catalog, manifest, cache=None):
     count = manifest['articleCount']
     scores, seen = [None] * count, set()
-    canonical, originals = {}, {}
+    canonical, originals, original_keys = {}, {}, {}
     coverage = Counter(articles=count, checked=0, scored=0, unavailable=0, missing=0, unsupported=0, notChecked=0)
     checked_at = manifest['generatedAt']
     db = sqlite3.connect(f'file:{Path(cache).resolve()}?mode=ro', uri=True) if cache and Path(cache).is_file() else None
-    traffic = {}
+    traffic, verified = {}, {}
     try:
         if db:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='verified_readership'").fetchone():
+                verified = {(lang, title): (value, at) for lang, title, value, days, at in db.execute('SELECT * FROM verified_readership')
+                            if at >= time.time() - 7 * 86400 and (value is None or valid_score(value))}
             for lang, daily, days, first, last, at in db.execute('SELECT * FROM project_traffic'):
                 traffic[lang] = {'dailyViews': daily, 'days': days, 'firstDay': first, 'lastDay': last, 'checkedAt': at}
                 checked_at = max(checked_at, at)
@@ -211,6 +218,7 @@ def payload(catalog, manifest, cache=None):
             seen.add(i)
             key = article['lang'], article['title']
             originals[key] = i
+            original_keys[i] = key
             canonical[i] = key
             value, status = article.get('wikipediaPopularity'), 'notChecked'
             if valid_score(value):
@@ -241,27 +249,38 @@ def payload(catalog, manifest, cache=None):
     groups = {}
     for i, key in canonical.items():
         groups.setdefault(key, []).append(i)
-    redirects, representatives = {}, []
+    redirects, representatives, excluded, reviewed = {}, [], [], []
     for key, members in groups.items():
+        if is_main_page(*key) or any(is_main_page(*original_keys[i]) for i in members):
+            excluded.extend(members)
+            continue
         candidate = originals.get(key)
         representative = candidate if candidate in members else min(members)
         # The canonical title is preferred when it exists in this archive.
         # Its score can be supplied by any redirect checked during this snapshot.
         values = [scores[i] for i in members if scores[i] is not None]
         scores[representative] = max(values) if values else None
+        if key in verified:
+            scores[representative], at = verified[key]
+            reviewed.append(representative)
+            checked_at = max(checked_at, at)
         representatives.append(representative)
         redirects.update({str(i): representative for i in members if i != representative})
     order = sorted(representatives, key=lambda i: (scores[i] is None, -(scores[i] or 0), i))
-    coverage.update(ranked=len(order), redirects=len(redirects))
+    coverage.update(ranked=len(order), redirects=len(redirects), excluded=len(excluded), reviewed=len(reviewed))
     return {'kind': 'xwiki-wikipedia-index', 'version': 1, 'generation': manifest['generation'],
             'generatedAt': checked_at, 'source': SOURCE, 'coverage': dict(coverage),
-            'projectTraffic': traffic, 'scores': scores, 'order': order, 'redirects': redirects}
+            'projectTraffic': traffic, 'scores': scores, 'order': order, 'redirects': redirects, 'excluded': sorted(excluded),
+            'reviewed': sorted(reviewed), 'reviewMetric': 'median-daily-pageviews', 'reviewWindowDays': 30,
+            'excludedIds': [f'{original_keys[i][0]}:{original_keys[i][1]}' for i in sorted(excluded)]}
 
 
 def index_metadata(data):
     encoded = json.dumps(data, separators=(',', ':')).encode()
     metadata = {'path': f'wikipedia-{hashlib.sha256(encoded).hexdigest()[:16]}.json', 'version': 1,
-                'source': SOURCE, 'coverage': data['coverage'], 'generatedAt': data['generatedAt']}
+                'source': SOURCE, 'coverage': data['coverage'], 'generatedAt': data['generatedAt'],
+                'review': {'metric': data['reviewMetric'], 'windowDays': data['reviewWindowDays'], 'articles': len(data['reviewed'])},
+                'excluded': data['excluded'], 'excludedIds': data['excludedIds']}
     return encoded, metadata
 
 
@@ -297,9 +316,13 @@ def main():
     parser.add_argument('--cache', default='.data/wikipedia-popularity.sqlite')
     parser.add_argument('--export-only', action='store_true')
     parser.add_argument('--refresh', action='store_true')
+    parser.add_argument('--audit-only', action='store_true')
     args = parser.parse_args()
-    if not args.export_only:
+    if not args.export_only and not args.audit_only:
         collect(args.catalog, args.cache, args.refresh)
+    if not args.export_only:
+        from .wiki_audit import audit
+        audit(args.catalog, args.cache)
     print(json.dumps(publish(args.catalog, args.cache), indent=2))
 
 if __name__ == '__main__':

@@ -133,7 +133,7 @@ db.close()
           await startup.locator('.feed-loading').waitFor();
           assert.equal(await startup.locator('#timeline').getAttribute('aria-busy'), 'true');
           assert.equal(await startup.locator('.article-card').count(), 0, 'No generic/cached posts during startup');
-          assert.match(await startup.locator('.source-note').textContent(), /Loading your feed/);
+          assert.match(await startup.locator('.source-note').textContent(), /Loading/);
           assert.equal(await startup.locator('.end-note').count(), 0);
           assert.equal(await startup.locator('.loader:visible').count(), 1, 'Initial load shows only one spinner');
           assert.equal(await startup.locator('#load-area').textContent(), '', 'No duplicate footer loading control');
@@ -153,7 +153,7 @@ db.close()
         } else {
           assert.equal(await startup.locator('.preview-tag').count(), 0);
           assert.equal(await startup.locator(`[data-id="${cachedArticle.id}"]`).count(), 0);
-          assert.match(await startup.locator('.source-note').textContent(), /Personalized for you/);
+          assert.match(await startup.locator('.source-note').textContent(), /84 articles/);
         }
       } finally {
         manifest.resolve(); feed.resolve();
@@ -168,8 +168,8 @@ db.close()
   await page.goto('https://wikihack.test/WikiHack-mobile/');
   await page.locator('.mention-label').first().waitFor();
   await page.locator('.article-card .read-more').first().waitFor();
-  assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Computing', 'Physics & Chemistry', 'History']);
+  assert.equal(await page.getByRole('tab', { name: 'Home', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Home', 'Computing', 'Physics & Chemistry', 'History']);
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 0, 0)');
   const first = page.locator('.article-card').filter({ has: page.locator('.read-more') }).first();
@@ -271,7 +271,7 @@ db.close()
   assert.equal(await page.locator('.sort-button').count(), 0, 'Sorting belongs on Home');
   assert.equal(await page.locator('.article-card').count(), 0, 'Empty Search does not display an unrelated feed');
   await page.getByRole('button', { name: 'Home', exact: true }).click();
-  assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.getByRole('tab', { name: 'Home', exact: true }).getAttribute('aria-selected'), 'true');
   await page.evaluate(() => scrollTo(0, 0));
   const refreshed = page.waitForResponse(r => r.url().endsWith('/data/catalog/manifest.json'));
   const pullLoading = await page.evaluate(() => {
@@ -310,7 +310,7 @@ db.close()
   assert.equal(await page.locator('.article-card').count(), 0, 'Clearing search restores the search prompt');
   assert.equal(await page.getByRole('tab').count(), 0);
   await page.getByRole('button', { name: 'Home', exact: true }).click();
-  assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.getByRole('tab', { name: 'Home', exact: true }).getAttribute('aria-selected'), 'true');
   const mathRequested = Promise.withResolvers(), releaseMath = Promise.withResolvers();
   await page.getByRole('button', { name: 'Browse topics', exact: true }).click();
   await page.getByRole('button', { name: 'Pin Mathematics', exact: true }).click();
@@ -359,6 +359,12 @@ db.close()
     return indices.filter(i => allowed.has(i) && !hidden.includes(fixtureCards[i].id)).slice(0, 12).map(i => fixtureCards[i].title);
   };
   assert.equal(await page.getByRole('button', { name: 'Sort posts: For You (HN)', exact: true }).count(), 1);
+  assert.equal(await page.locator('.source-note').count(), 1);
+  assert.equal(await page.locator('.feed-sort .source-note').count(), 1, 'Article count and sorting share one toolbar');
+  assert.equal(await page.locator('#page-content > .source-note').count(), 0, 'No second count header');
+  await page.locator('#sort-button').click();
+  assert.deepEqual(await page.getByRole('menuitemradio').evaluateAll(items => items.map(item => item.getAttribute('aria-label'))), ['For You (HN)', 'Top (HN)', 'Rising (HN)', 'Top (Wikipedia)']);
+  await page.keyboard.press('Escape');
   const sortButtonBox = await page.locator('#sort-button').boundingBox();
   const topicTabsBox = await page.locator('.home-tabs-host').boundingBox();
   assert.ok(sortButtonBox.y >= topicTabsBox.y + topicTabsBox.height, 'Sort control sits beneath the topic tabs');
@@ -398,7 +404,7 @@ db.close()
   assert.equal(await page.getByRole('button', { name: 'Sort posts: Top (Wikipedia)', exact: true }).count(), 1, 'Navigation preserves the Home sort');
   await page.locator('#sort-button').press('ArrowDown');
   assert.equal(await page.getByRole('menuitemradio', { name: 'Top (Wikipedia)', exact: true }).getAttribute('aria-checked'), 'true');
-  await page.keyboard.press('End'); await page.keyboard.press('Enter'); await waitFeed();
+  await page.keyboard.press('Home'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter'); await waitFeed();
   assert.equal(await page.getByRole('button', { name: 'Sort posts: Rising (HN)', exact: true }).count(), 1);
   await page.locator('#sort-button').click();
   await page.keyboard.press('Escape');
@@ -424,7 +430,7 @@ db.close()
   await page.getByRole('button', { name: 'Home', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: 'Mathematics', exact: true }).getAttribute('aria-selected'), 'true');
   await page.locator(`[data-id="${topicId}"]`).getByRole('button', { name: 'Mark as seen', exact: true }).click();
-  await page.getByRole('tab', { name: 'For you', exact: true }).click();
+  await page.getByRole('tab', { name: 'Home', exact: true }).click();
   assert.equal(await page.locator(`[data-id="${topicId}"]`).count(), 0, 'Topic feedback applies to the main For you feed');
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/dark-mobile-feed.png' });
@@ -475,21 +481,21 @@ db.close()
   await page.getByRole('button', { name: 'Unpin History', exact: true }).click();
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('tab', { name: 'History', exact: true }).count(), 0);
-  assert.equal(await page.getByRole('tab', { name: 'For you', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.getByRole('tab', { name: 'Home', exact: true }).getAttribute('aria-selected'), 'true');
   await page.getByRole('button', { name: 'Browse topics' }).click();
   await page.locator('[data-action="open-topic"][data-topic="history"]').click();
   await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
   assert.equal(await page.getByRole('tab', { name: 'History', exact: true }).getAttribute('aria-selected'), 'true');
   assert.ok((await page.locator('.article-title h2').allTextContents()).every(title => title.startsWith('Archaeology ')));
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('wikihack:pinned-topics-v1')).includes('history')), false);
-  await page.getByRole('tab', { name: 'For you', exact: true }).click();
+  await page.getByRole('tab', { name: 'Home', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: 'History', exact: true }).count(), 0, 'Opening a topic does not pin it');
   await page.getByRole('button', { name: 'Browse topics' }).click();
   while (await page.locator('.topic-pin[aria-pressed="true"]').count()) await page.locator('.topic-pin[aria-pressed="true"]').first().click();
   await page.keyboard.press('Escape');
   await page.reload();
   await page.locator('.mention-label').first().waitFor();
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you'], 'All topics can be unpinned without restoring defaults');
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Home'], 'All topics can be unpinned without restoring defaults');
   await page.setViewportSize({ width: 320, height: 844 });
   await page.getByRole('button', { name: 'Browse topics' }).click();
   await page.getByRole('button', { name: 'Pin Art, Music & Design', exact: true }).click();
@@ -513,7 +519,7 @@ db.close()
   assert.deepEqual(await pickerOrder(), ['biology', ...originalOrder.filter(id => id !== 'biology')], 'Dragging moves only the chosen topic');
   assert.equal(await page.evaluate(() => localStorage.getItem('wikihack:pinned-topics-v1')), pinsBeforeDrag, 'Dragging preserves pins');
   await page.keyboard.press('Escape');
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Art, Music & Design', 'Computing', 'History', 'Physics & Chemistry']);
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Home', 'Art, Music & Design', 'Computing', 'History', 'Physics & Chemistry']);
   await page.reload();
   await page.locator('.article-card').first().waitFor();
   await page.getByRole('button', { name: 'Browse topics' }).click();
@@ -585,7 +591,7 @@ db.close()
   });
   await page.reload();
   await page.locator('.article-card').first().waitFor();
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['For you', 'Physics & Chemistry', 'History', 'Computing', 'Art, Music & Design', 'Society & Education'], 'Existing pins and custom order migrate to the new groups');
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Home', 'Physics & Chemistry', 'History', 'Computing', 'Art, Music & Design', 'Society & Education'], 'Existing pins and custom order migrate to the new groups');
   await page.getByRole('button', { name: 'Browse topics' }).click();
   assert.deepEqual((await pickerOrder()).slice(0, 5), ['science', 'history', 'computing', 'arts', 'society']);
   assert.equal((await pickerOrder()).length, 21, 'New groups are appended to a saved order');

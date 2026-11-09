@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
+from .article_pages import is_main_page
+
 YEAR = 365 * 86400
 NAMESPACES = re.compile(r'^(special|talk|user|user talk|wikipedia|wikipedia talk|file|file talk|mediawiki|template|template talk|help|category|portal|draft|module|book|timedtext|media):', re.I)
 TYPE_NAMES = {1: 'story', 2: 'comment', 3: 'poll', 4: 'pollopt', 5: 'job'}
@@ -39,7 +41,7 @@ def wiki_url(raw):
             parse_qs(url.query).get('title', [''])[0] if url.path == '/w/index.php' else '')
         import unicodedata
         title = unicodedata.normalize('NFC', re.sub(r'\s+', ' ', title.replace('_', ' ')).strip())
-        if not title or NAMESPACES.match(title) or title == 'Main Page':
+        if not title or NAMESPACES.match(title) or is_main_page(host[1].lower(), title):
             return None
         title = title[0].upper() + title[1:]
         lang = host[1].lower()

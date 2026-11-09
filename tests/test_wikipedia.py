@@ -1,5 +1,6 @@
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -70,6 +71,15 @@ class WikipediaRankingTest(unittest.TestCase):
             updated = json.loads((catalog / 'manifest.json').read_text())
             self.assertEqual(updated['dataBytes'], sum(file.stat().st_size for file in data_root.rglob('*.json')))
             self.assertEqual({file.name: file.read_bytes() for file in (data_root / 'articles').glob('*.json')}, cards)
+            db = cache_db(cache)
+            with db:
+                db.execute('INSERT INTO verified_readership VALUES (?,?,?,?,?)', ('en', 'Popular', 0, 28, int(time.time())))
+            db.close()
+            reviewed = publish(catalog, cache)
+            reviewed_data = json.loads((data_root / reviewed['path']).read_text())
+            self.assertEqual(titles[reviewed_data['order'][0]], 'Quiet')
+            self.assertEqual(reviewed_data['scores'][data['order'][0]], 0, 'Measured zero overrides estimates from all redirect aliases')
+            self.assertIn(data['order'][0], reviewed_data['reviewed'])
             saved = (catalog / 'manifest.json').read_bytes()
             with self.assertRaisesRegex(ValueError, 'incomplete'):
                 publish(catalog, root / 'missing.sqlite')

@@ -14,7 +14,7 @@ XWiki turns Wikipedia articles shared on Hacker News into a personal, X-style fe
 
 <table>
   <tr>
-    <th>For you</th>
+    <th>Home</th>
     <th>Sort any topic</th>
     <th>Search</th>
   </tr>
@@ -27,9 +27,9 @@ XWiki turns Wikipedia articles shared on Hacker News into a personal, X-style fe
 
 ## Follow your curiosity
 
-- **A feed that learns your interests.** For you mixes discoveries, popular articles, and rising topics. Heart a post to see more related ideas; mark it as seen to hide it, or choose Not interested to steer recommendations away from it.
-- **Your subjects, your timeline.** Open any topic or pin favorites beside For you. The picker starts alphabetically; drag its handles to set your own order, including your pinned tabs. Computing, Physics & Chemistry, and History start pinned; your choices stay saved in your browser.
-- **Choose how you explore.** Beneath the topic tabs, sort by For You (HN), Top (Wikipedia), Top (HN), or Rising (HN). Every option stays within your selected subject.
+- **A feed that learns your interests.** Home’s For You sort mixes discoveries, popular articles, and rising topics. Heart a post to see more related ideas; mark it as seen to hide it, or choose Not interested to steer recommendations away from it.
+- **Your subjects, your timeline.** Open any topic or pin favorites beside Home. The picker starts alphabetically; drag its handles to set your own order, including your pinned tabs. Computing, Physics & Chemistry, and History start pinned; your choices stay saved in your browser.
+- **Choose how you explore.** Beneath the topic tabs, sort by For You (HN), Top (HN), Rising (HN), or Top (Wikipedia). Every option stays within your selected subject.
 - **Read a little. Explore further.** Expand a preview to its full first paragraph, or open the article on Wikipedia when something catches your attention.
 - **See why it was shared.** The comments button opens the original Hacker News mentions, with links back to their discussions.
 - **Find your next rabbit hole.** Search across the archive, then return to the same topic and sort on Home.

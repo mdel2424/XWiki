@@ -31,7 +31,6 @@ h1,h2,h3,h4,p { margin:0; }
 .sort-button:hover,.sort-button[aria-expanded="true"] { background:var(--soft); border-color:#536471; }
 .sort-button .icon { width:16px; height:16px; }
 .sort-button .icon:last-child { width:13px; height:13px; color:var(--muted); }
-.sort-hint { color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .sort-menu { position:absolute; left:16px; top:calc(100% - 4px); width:288px; max-width:calc(100vw - 34px); max-height:calc(100dvh - 185px); overflow:auto; padding:6px; background:var(--bg); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 30px #000b,0 0 12px #ffffff12; z-index:20; }
 .sort-menu[hidden] { display:none; }
 .sort-menu button { display:flex; align-items:center; gap:12px; width:100%; padding:12px; min-height:64px; text-align:left; border-radius:10px; }
@@ -67,8 +66,10 @@ h1,h2,h3,h4,p { margin:0; }
 .topic-row.is-dragging .topic-reorder { cursor:grabbing; }
 .page-heading { padding:10px 17px 14px; }
 .page-heading h1 { font-size:22px; font-weight:800; }
-.source-note { min-height:39px; display:flex; align-items:center; justify-content:center; gap:7px; width:100%; padding:8px 12px; font-size:11px; color:var(--muted); border-bottom:1px solid var(--line); }
-.source-note .icon { width:13px; height:13px; margin-left:2px; }
+.source-note { min-height:36px; min-width:0; display:inline-flex; align-items:center; justify-content:flex-end; gap:6px; padding:4px 0 4px 8px; font-size:11px; color:var(--muted); }
+.source-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.source-note .icon { width:14px; height:14px; }
+.source-note:hover { color:var(--text); }
 .status-dot { width:5px; height:5px; border-radius:50%; background:var(--blue); flex-shrink:0; }
 .article-card { cursor:pointer; display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:10px; padding:13px 16px 0; border-bottom:1px solid var(--line); }
 .post-avatar { display:flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:50%; background:#e6e6e6; color:#111; font:27px Georgia,serif; flex-shrink:0; margin-top:1px; }

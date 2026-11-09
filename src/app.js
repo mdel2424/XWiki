@@ -1,3 +1,4 @@
+import { isMainPage } from './article-pages.js';
 import { imageSource, recoverImage } from './images.js';
 import { fetchReadership } from './readership.js';
 import { mergeArticles, applyEnrichment, uniqueAuthors, searchArticles, safeHttps, rankArticles } from './core.js';
@@ -40,7 +41,7 @@ const compactCount = new Intl.NumberFormat('en', { notation: 'compact', maximumF
 const paragraphText = article => firstParagraph(article.firstParagraph || (article.sample ? article.extract : '') || article.description || 'An article linked in a Hacker News discussion.');
 const collection = () => state.articles.length ? state.articles : SAMPLE_ARTICLES;
 const liked = article => Boolean(state.profile.likes[article.id]);
-const isHidden = article => hidden(article, state.profile);
+const isHidden = article => hidden(article, state.profile) || isMainPage(article) || catalog.excludedIds.has(article.id);
 const isSearching = () => state.page === 'explore';
 const isFeedPage = () => state.page === 'home';
 const isPersonalizedFeed = () => state.sort === 'for-you';
@@ -103,7 +104,7 @@ function homeTabBar() {
 }
 function sortControl() {
   const current = sortFor(state.sort);
-  return `<div class="feed-sort"><button class="sort-button" data-action="sort-menu" id="sort-button" aria-label="Sort posts: ${current.label}" aria-haspopup="menu" aria-expanded="false" aria-controls="sort-menu">${icon('sort')}<span>${current.label}</span>${icon('chevron-down')}</button><span class="sort-hint">${current.description}</span><div class="sort-menu" id="sort-menu" role="menu" aria-label="Sort posts" hidden>${FEED_SORTS.map(sort => `<button role="menuitemradio" aria-label="${sort.label}" aria-checked="${state.sort === sort.id}" data-action="sort-feed" data-sort="${sort.id}" tabindex="-1">${icon(sort.icon)}<span><strong>${sort.label}</strong><small>${sort.description}</small></span><span class="sort-check">${state.sort === sort.id ? icon('check') : ''}</span></button>`).join('')}</div></div>`;
+  return `<div class="feed-sort"><button class="sort-button" data-action="sort-menu" id="sort-button" aria-label="Sort posts: ${current.label}" aria-haspopup="menu" aria-expanded="false" aria-controls="sort-menu">${icon('sort')}<span>${current.label}</span>${icon('chevron-down')}</button>${sourceNote()}<div class="sort-menu" id="sort-menu" role="menu" aria-label="Sort posts" hidden>${FEED_SORTS.map(sort => `<button role="menuitemradio" aria-label="${sort.label}" aria-checked="${state.sort === sort.id}" data-action="sort-feed" data-sort="${sort.id}" tabindex="-1">${icon(sort.icon)}<span><strong>${sort.label}</strong><small>${sort.description}</small></span><span class="sort-check">${state.sort === sort.id ? icon('check') : ''}</span></button>`).join('')}</div></div>`;
 }
 function closeSortMenu(focus = false) {
   const menu = $('#sort-menu');
@@ -179,15 +180,16 @@ function shell() {
   renderPage();
   if (state.page === 'home') $(`#tab-${state.mode}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
+function sourceStatus() {
+  return !state.ready ? 'Loading…' : state.backend === 'static' ? `${state.archive?.articles?.toLocaleString() || 'Archive'} articles` : state.offline ? 'Offline preview' : 'Preview collection';
+}
 function sourceNote() {
-  const text = !state.ready ? 'Loading your feed…' : !state.articles.length ? (state.loading ? 'Connecting · preview collection' : 'Offline preview · no invented HN activity') :
-    state.backend === 'static' ? `${state.archive?.articles?.toLocaleString() || 'Archive'} articles · ${isPersonalizedFeed() ? topicFor(state.mode) ? `Personalized · ${topicFor(state.mode).label}` : 'Personalized for you' : sortFor(state.sort).label}` : 'Static catalogue not built';
-  return `<button class="source-note" data-action="sources"><span class="status-dot"></span>${esc(text)}${icon('info')}</button>`;
+  const text = sourceStatus();
+  return `<button class="source-note" data-action="sources" aria-label="Feed sources and coverage: ${esc(text)}" title="Feed sources and coverage"><span class="source-label">${esc(text)}</span>${icon('info')}</button>`;
 }
 function renderPage() {
   if (state.page === 'settings') { renderSettings(); return; }
-  $('#page-content').innerHTML = `${state.page === 'home' ? sourceNote() : ''}
-    ${state.page === 'likes' ? '<div class="library-intro"><h2>Your kind of interesting.</h2><p>Hearts boost related categories in For you and your topic lists.</p></div>' : ''}
+  $('#page-content').innerHTML = `${state.page === 'likes' ? '<div class="library-intro"><h2>Your kind of interesting.</h2><p>Hearts boost related categories on Home and in your topic lists.</p></div>' : ''}
     <div id="timeline"></div><div id="load-area"></div>`;
   renderTimeline();
 }
@@ -216,6 +218,11 @@ function card(article, index) {
 }
 function renderTimeline() {
   if (!$('#timeline')) return;
+  const source = $('.source-note');
+  if (source) {
+    source.querySelector('.source-label').textContent = sourceStatus();
+    source.setAttribute('aria-label', `Feed sources and coverage: ${sourceStatus()}`);
+  }
   const articles = viewArticles();
   const waiting = isFeedPage() ? state.loading || !state.ready || pullIsRefreshing() : isSearching() && state.searchLoading;
   $('#timeline').setAttribute('aria-busy', String(Boolean(waiting)));
@@ -273,7 +280,7 @@ function persistProfile(next) {
 function renderSettings() {
   const stats = state.archive;
   $('#page-content').innerHTML = `<div class="settings-content">
-    <section><h2>Your timeline. Your taste.</h2><p>Hearts boost related posts in For you and your topic lists. “Not interested” hides that post and reduces similar recommendations. X marks only that article as seen and hides it. Preferences stay in this browser.</p><div class="stats-row"><span><strong>${Object.keys(state.profile.likes).length}</strong> liked</span><span><strong>${Object.keys(state.profile.rejected).length}</strong> not interested</span><span><strong>${Object.keys(state.profile.seen || {}).length}</strong> seen</span></div><button class="setting-button" data-action="reset-profile">Reset recommendations ${icon('chevron')}</button></section>
+    <section><h2>Your timeline. Your taste.</h2><p>Hearts boost related posts on Home and in your topic lists. “Not interested” hides that post and reduces similar recommendations. X marks only that article as seen and hides it. Preferences stay in this browser.</p><div class="stats-row"><span><strong>${Object.keys(state.profile.likes).length}</strong> liked</span><span><strong>${Object.keys(state.profile.rejected).length}</strong> not interested</span><span><strong>${Object.keys(state.profile.seen || {}).length}</strong> seen</span></div><button class="setting-button" data-action="reset-profile">Reset recommendations ${icon('chevron')}</button></section>
     <section><h3>Display</h3><div class="setting-row"><span>Dark mode<small>The X-style black interface.</small></span>${icon('moon')}</div><label class="setting-row"><span>Article images<small>Turn off to save data.</small></span><input id="images-toggle" type="checkbox" role="switch" aria-label="Show article images" ${state.settings.images !== false ? 'checked' : ''}></label></section>
     <section><h3>HN archive</h3><p>${stats?.articles ? `${stats.articles.toLocaleString()} articles from ${stats.mentions.toLocaleString()} linked mentions. ${stats.shardsImported.toLocaleString()}/${stats.snapshot?.expectedShards || stats.shardsKnown} shards imported.` : 'Build the static catalogue to browse the imported archive.'}</p><button class="setting-button" data-action="sources">Dataset, freshness & coverage ${icon('chevron')}</button></section>
     <p class="version-note">Pull down at the top of your feed to refresh · Press R on desktop</p></div>`;
@@ -344,7 +351,7 @@ async function context(article, cursor = 0) {
 }
 function sources() {
   const data = state.archive;
-  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your For you feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. For you mixes 80% weighted random discoveries, 10% Rising and 10% Top. Articles linked by fewer than five people appear rarely. The discovery draw favors broader HN interest, especially articles linked by ten or more people, while keeping some room for rare discoveries. Top and Rising picks in For you are shuffled from each ranking’s leading 1,000 articles. Hearts influence discovery order. Recent Wikipedia readership gently favors widely read articles, with the strongest penalty for posts that also have few HN linkers. Home topic lists use <a href="https://wikitech.wikimedia.org/wiki/Search/articletopic" ${external}>Wikipedia’s article-topic predictions</a>, grouped into 21 subjects. Articles can belong to more than one subject. Each list keeps your personalized ranking and discovery mix. Browse Topics to open any list and pin favorites to Home. Pins stay saved in this browser. Use the sort button beneath Home’s topics to switch between For You (HN), Top (Wikipedia), Top (HN), and Rising (HN). Every sort stays within the selected topic. Top (Wikipedia) uses Wikipedia’s indexed, pageview-based popularity, adjusted for traffic across language editions. Top (HN) counts distinct HN linkers across all time; Rising (HN) ranks distinct linkers during the six calendar months before the ranking was built. Search finds articles across the archive.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
+  showSheet('Feed sources & coverage', `<div class="about-content"><h3>From HN to your timeline.</h3><p>This site loads a prebuilt catalogue, a search index and paginated original HN comments. It needs only static file hosting. Hearts, seen posts and personalized ranking stay in your browser.</p><h4>The catalogue</h4><p>${data ? `${data.articles.toLocaleString()} articles and ${data.mentions.toLocaleString()} linked mentions in this snapshot.` : 'No static catalogue is available yet. Run npm run build in the project directory after importing the archive.'}</p><p>Source: <a href="https://huggingface.co/datasets/open-index/hacker-news" ${external}>Open Index HN archive</a>, supplemented by official HN updates during offline data preparation. The snapshot covers the imported data, rather than a claim that every HN item is present.</p><h4>Your Home feed</h4><p>Hearts boost related titles, summaries and Wikipedia categories. “Not interested” downranks similar topics. X hides only that article. For You sorting mixes 80% weighted random discoveries, 10% Rising and 10% Top. Articles linked by fewer than five people appear rarely. The discovery draw favors broader HN interest, especially articles linked by ten or more people, while keeping some room for rare discoveries. Top and Rising picks with For You sorting are shuffled from each ranking’s leading 1,000 articles. Hearts influence discovery order. Recent Wikipedia readership gently favors widely read articles, with the strongest penalty for posts that also have few HN linkers. Home topic lists use <a href="https://wikitech.wikimedia.org/wiki/Search/articletopic" ${external}>Wikipedia’s article-topic predictions</a>, grouped into 21 subjects. Articles can belong to more than one subject. Each list keeps your personalized ranking and discovery mix. Browse Topics to open any list and pin favorites to Home. Pins stay saved in this browser. Use the sort button beneath Home’s topics to switch between For You (HN), Top (HN), Rising (HN), and Top (Wikipedia). Every sort stays within the selected topic. Top (Wikipedia) uses Wikipedia readership, with leading results checked against the median daily views over the past 30 days. This smooths isolated traffic spikes. Top (HN) counts distinct HN linkers across all time; Rising (HN) ranks distinct linkers during the six calendar months before the ranking was built. Search finds articles across the archive.</p><p>Pull to refresh checks for a newly published catalogue and changes the random mix. Static data updates when its owner rebuilds and republishes it. Images and optional fresh Wikipedia summaries load directly from Wikimedia.</p><p class="attribution">Wikipedia text is CC BY-SA; article histories and image pages provide attribution. Independent of X, HN, Wikipedia and the original WikiHack.</p></div>`);
 }
 function navigate(page) {
   if (state.page === 'home') { homeScroll = scrollY; homeVisible = state.visible; }
@@ -422,7 +429,7 @@ async function load({ refresh = false, preserve = null } = {}) {
   }
   finally {
     state.loading = state.backend === 'static' ? feeds.tab().loading : false; state.ready = true;
-    if (state.page === 'home' || state.page === 'explore') { renderTimeline(); if ($('.source-note')) $('.source-note').outerHTML = sourceNote(); }
+    if (state.page === 'home' || state.page === 'explore') { renderTimeline(); }
   }
 }
 async function refreshFeed() {
@@ -493,12 +500,12 @@ document.addEventListener('click', async event => {
   else if (action === 'expand' && article) await toggleParagraph(article);
   else if (action === 'context' && article) await context(article);
   else if (action === 'more-context' && article) await context(article, Number(button.dataset.cursor));
-  else if (action === 'why' && article) showSheet('Why this post?', `<h3>${esc(article.title)}</h3><p>${esc(isPersonalizedFeed() ? article.recommendation?.reason || 'Discovered in Hacker News discussions.' : state.sort === 'wikipedia' ? 'Ranked by Wikipedia’s pageview-based popularity, adjusted for traffic across language editions.' : state.sort === 'rising' ? 'Ranked by distinct HN linkers over the last six calendar months.' : 'Ranked by distinct HN linkers across all time.')}</p><p class="muted">Hearts boost similar topics in For you and your topic lists. “Not interested” hides a post and downranks similar recommendations. You can reset this in Settings.</p>`, article.id);
+  else if (action === 'why' && article) showSheet('Why this post?', `<h3>${esc(article.title)}</h3><p>${esc(isPersonalizedFeed() ? article.recommendation?.reason || 'Discovered in Hacker News discussions.' : state.sort === 'wikipedia' ? 'Ranked by Wikipedia readership. Leading results use median daily views over the past 30 days to smooth isolated traffic spikes.' : state.sort === 'rising' ? 'Ranked by distinct HN linkers over the last six calendar months.' : 'Ranked by distinct HN linkers across all time.')}</p><p class="muted">Hearts boost similar topics on Home and in your topic lists. “Not interested” hides a post and downranks similar recommendations. You can reset this in Settings.</p>`, article.id);
   else if (action === 'like' && article) {
     const isLiked = liked(article);
     if (!persistProfile(feedback(state.profile, article, isLiked ? 'unlike' : 'like'))) return;
     if (state.page === 'home' && isPersonalizedFeed()) rerankAfter(article); else anchoredRender(article.id);
-    if (!isLiked) toast('Liked. You’ll see more related posts in For you.');
+    if (!isLiked) toast('Liked. You’ll see more related posts on Home with For You sorting.');
     if (state.backend === 'static' && state.page === 'home' && isPersonalizedFeed() && !isLiked && !state.loading) {
       await load({ refresh: true, preserve: state.order.slice(0, state.order.indexOf(article.id) + 1) });
     }

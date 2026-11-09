@@ -1,5 +1,6 @@
 import { discoveryOrder } from './discovery.js';
 import { matchesTopic, topicFor, isPersonalized } from './topics.js';
+import { isMainPage } from './article-pages.js';
 
 const STOP = new Set('a an the and of to in on for with from by is are was were it its as at that this or not be'.split(' '));
 export function searchTerms(text = '') {
@@ -23,6 +24,8 @@ export class StaticCatalog {
   constructor({ base = new URL('../data/catalog/', import.meta.url), fetcher = fetch } = {}) {
     this.base = new URL(base); this.fetcher = fetcher; this.manifest = null; this.cache = new Map(); this.discovery = null;
     this.topicIndex = null; this.articleTopics = null; this.topicDataPromise = null; this.wikipediaIndex = null; this.wikipediaPromise = null; this.wikipediaAliases = null;
+    this.nonArticles = new Set();
+    this.excludedIds = new Set();
   }
   async read(path, { fresh = false } = {}) {
     const url = new URL(path, this.base);
@@ -49,6 +52,8 @@ export class StaticCatalog {
       this.cache.clear(); this.discovery = null; this.topicIndex = null; this.articleTopics = null; this.topicDataPromise = null; this.wikipediaIndex = null; this.wikipediaPromise = null; this.wikipediaAliases = null;
     }
     this.manifest = manifest;
+    this.nonArticles = new Set(manifest.wikipediaIndex?.excluded || []);
+    this.excludedIds = new Set(manifest.wikipediaIndex?.excludedIds || []);
     return manifest;
   }
   file(path) { if (!this.manifest) throw new Error('Open the catalogue first.'); return `${this.manifest.generation}/${path}`; }
@@ -111,7 +116,7 @@ export class StaticCatalog {
       .sort((a, b) => b[1] - a[1] || a[0] - b[0]).map(([id]) => id);
   }
   async search(query, { cursor = 0, limit = 60 } = {}) {
-    const ids = query.trim() ? await this.matches(query) : Array.from({ length: this.manifest.articleCount }, (_, i) => i);
+    const ids = (query.trim() ? await this.matches(query) : Array.from({ length: this.manifest.articleCount }, (_, i) => i)).filter(i => !this.nonArticles.has(i));
     return { articles: await this.cards(ids.slice(cursor, cursor + limit)), nextCursor: cursor + limit < ids.length ? cursor + limit : null };
   }
   async topicData() {
@@ -158,11 +163,13 @@ export class StaticCatalog {
             !Array.isArray(data.order) || data.order.length > count || new Set(data.order).size !== data.order.length ||
             data.order.some(i => !Number.isInteger(i) || i < 0 || i >= count)) throw new Error('Invalid Wikipedia popularity ranking.');
         const representatives = new Set(data.order), aliases = new Map(), redirects = Object.entries(data.redirects || {});
-        if (data.order.length + redirects.length !== count) throw new Error('Incomplete Wikipedia popularity ranking.');
+        const excluded = new Set(data.excluded || []);
+        if (excluded.size !== (data.excluded || []).length || [...excluded].some(i => !Number.isInteger(i) || i < 0 || i >= count || representatives.has(i)) ||
+            data.order.length + redirects.length + excluded.size !== count) throw new Error('Incomplete Wikipedia popularity ranking.');
         for (const [alias, target] of redirects) {
           const index = Number(alias);
           if (!Number.isInteger(index) || String(index) !== alias || index < 0 || index >= count ||
-              representatives.has(index) || !representatives.has(target)) throw new Error('Invalid Wikipedia redirect.');
+              representatives.has(index) || excluded.has(index) || !representatives.has(target)) throw new Error('Invalid Wikipedia redirect.');
           if (!aliases.has(target)) aliases.set(target, []);
           aliases.get(target).push(index);
         }
@@ -196,11 +203,12 @@ export class StaticCatalog {
       else if (sort === 'top') ids = candidates || Array.from({ length: this.manifest.articleCount }, (_, i) => i);
       else if (sort === 'rising') ids = (await this.ranks('rising', 0, this.manifest.risingCount)).filter(i => !allowed || allowed.has(i));
       else throw new Error('Unknown feed sort.');
+      ids = ids.filter(i => !this.nonArticles.has(i));
       let position = Number.isInteger(cursor) ? cursor : 0;
       while (articles.length < limit && position < ids.length) {
         const batch = ids.slice(position, position + limit - articles.length);
         position += batch.length;
-        for (const article of await this.cards(batch)) if (!hidden.has(article.id)) articles.push(article);
+        for (const article of await this.cards(batch)) if (!hidden.has(article.id) && !isMainPage(article)) articles.push(article);
       }
       return { articles, nextCursor: position < ids.length ? position : null, mode, sort };
     }
@@ -240,7 +248,7 @@ export class StaticCatalog {
         }
         positions[lane] += draw.length;
         for (const article of await this.cards(indices)) {
-          if (used.has(article.id) || !matchesTopic(article, mode)) continue;
+          if (used.has(article.id) || this.nonArticles.has(article._index) || isMainPage(article) || !matchesTopic(article, mode)) continue;
           used.add(article.id); sources[lane].push(article.id); articles.push(article);
         }
       }

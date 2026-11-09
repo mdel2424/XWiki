@@ -1,3 +1,4 @@
+import { isMainPage } from './article-pages.js';
 export const YEAR = 365 * 24 * 60 * 60;
 export function sixMonthsAgo(now = Date.now() / 1000) {
   const date = new Date(now * 1000), day = date.getUTCDate();
@@ -37,7 +38,7 @@ export function parseWikiUrl(raw) {
       url.pathname === '/w/index.php' ? url.searchParams.get('title') : null;
     if (!title) return null;
     title = title.replaceAll('_', ' ').replace(/\s+/g, ' ').trim().normalize('NFC');
-    if (!title || NAMESPACES.test(title) || title === 'Main Page') return null;
+    if (!title || NAMESPACES.test(title) || isMainPage({ lang: host[1].toLowerCase(), title })) return null;
     title = title.charAt(0).toUpperCase() + title.slice(1);
     const lang = host[1].toLowerCase();
     return { id: `${lang}:${title}`, lang, title, url: wikiUrl(lang, title) };

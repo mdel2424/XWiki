@@ -237,3 +237,26 @@ test('Wikipedia sorting collapses redirects without losing a topic assigned to a
   assert.equal(result.nextCursor, null);
   assert.deepEqual((await catalog.feed({ sort: 'wikipedia' })).articles.map(article => article.id), ['en:Canonical', 'en:Other']);
 });
+
+test('main-page ordinals and redirect aliases are excluded from every feed sort and search', async () => {
+  const generation = 'v-pages', excluded = [0, 1];
+  const manifest = { kind: 'wikihack-static', version: 1, generation, articleCount: 3,
+    articleShardSize: 256, rankShardSize: 512, risingCount: 3,
+    wikipediaIndex: { path: 'wikipedia.json', excluded, excludedIds: ['en:Main Page', 'en:Landing'] } };
+  const catalog = new StaticCatalog({ base: new URL('https://example.test/catalog/'), fetcher: async raw => {
+    const file = new URL(raw).pathname;
+    const value = file.endsWith('/manifest.json') ? manifest : file.endsWith('/wikipedia.json') ? {
+      kind: 'xwiki-wikipedia-index', version: 1, generation, source: { kind: 'wikimedia-popularity' }, coverage: { articles: 3 },
+      scores: [1000, 1000, 10], order: [2], redirects: {}, excluded,
+    } : file.includes('/rising/') ? [1, 0, 2] : ['Main Page', 'Landing', 'Wikipedia'].map((title, _index) => ({
+      id: `en:${title}`, lang: 'en', title, _index, mentions: [],
+    }));
+    return { ok: true, json: async () => value };
+  } });
+  await catalog.open();
+  for (const sort of ['for-you', 'top', 'rising', 'wikipedia']) {
+    assert.deepEqual((await catalog.feed({ sort })).articles.map(article => article.title), ['Wikipedia'], sort);
+  }
+  assert.deepEqual((await catalog.search('')).articles.map(article => article.title), ['Wikipedia']);
+  assert.ok(catalog.excludedIds.has('en:Landing'));
+});
