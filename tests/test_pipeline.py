@@ -157,6 +157,10 @@ class PipelineTest(unittest.TestCase):
         ingest(self.db, [story(url='https://en.wikipedia.org/wiki/Bikeshedding')])
         self.rebuild()
         def request(url):
+            if 'action=parse' in url:
+                return {'parse': {'text': '<figure><img src="//thumb.wikimedia.org/wikipedia/commons/a/ab/Triviality.png" width="300" height="200"></figure>'}}
+            if 'prop=imageinfo' in url:
+                return {'query': {'pages': [{'imageinfo': [{'thumburl': 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Triviality.png'}]}]}}
             self.assertIn('categories', unquote(url))
             self.assertIn('pilicense=any', url)
             return {'query': {'redirects': [{'from': 'Bikeshedding', 'to': "Parkinson's law of triviality"}], 'pages': [{
@@ -170,6 +174,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(value['categories'], ['Decision-making'])
         self.assertEqual(value['related'], ['Groupthink'])
         self.assertTrue(value['metadataLoaded'])
+        self.assertEqual(value['thumbnailSource'], 'article')
+        self.assertEqual(value['imageMetadataVersion'], 2)
+        self.assertIn('Triviality.png', value['thumbnail'])
 
     def test_api_validates_modes_and_preserves_unicode_article_ids(self):
         ingest(self.db, [story(url='https://fr.wikipedia.org/wiki/Th%C3%A9orie_des_jeux')])

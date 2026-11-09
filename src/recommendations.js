@@ -51,7 +51,7 @@ export function cosine(a, b) {
 export function emptyProfile() { return { version: 1, likes: {}, rejected: {}, seen: {} }; }
 export function hidden(article, profile) { return Boolean(profile.rejected[article.id] || profile.seen?.[article.id]); }
 export function snapshot(article) {
-  return Object.fromEntries(['id', 'title', 'lang', 'description', 'extract', 'firstParagraph', 'categories', 'related', 'url', 'illustration', 'sample', 'mentions', 'metrics', 'thumbnail', 'imageMetadataVersion', 'readership', 'topics', 'topicPredictions', '_index']
+  return Object.fromEntries(['id', 'title', 'lang', 'description', 'extract', 'firstParagraph', 'categories', 'related', 'url', 'illustration', 'sample', 'mentions', 'metrics', 'thumbnail', 'thumbnailSource', 'imageMetadataVersion', 'readership', 'topics', 'topicPredictions', '_index']
     .filter(key => article[key] !== undefined).map(key => [key, article[key]]));
 }
 export function feedback(profile, article, action, now = Date.now()) {

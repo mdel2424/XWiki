@@ -2,10 +2,11 @@
 export function originalImage(source) {
   try {
     const url = new URL(source);
-    if (url.protocol !== 'https:' || url.hostname !== 'upload.wikimedia.org') return null;
+    if (url.protocol !== 'https:' || !['upload.wikimedia.org', 'thumb.wikimedia.org'].includes(url.hostname)) return null;
     const match = url.pathname.match(/^\/wikipedia\/([^/]+)\/thumb\/([^/]+)\/([^/]+)\/([^/]+)\/.+$/);
     if (!match || !/\.(png|gif|jpe?g|webp|svg|avif)$/i.test(decodeURIComponent(match[4]))) return null;
     url.pathname = `/wikipedia/${match[1]}/${match[2]}/${match[3]}/${match[4]}`;
+    url.hostname = 'upload.wikimedia.org';
     url.search = ''; url.hash = '';
     return url.href;
   } catch { return null; }

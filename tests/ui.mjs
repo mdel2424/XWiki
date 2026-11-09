@@ -46,7 +46,7 @@ with db:
    title=topic+' '+str(k);url='https://en.wikipedia.org/wiki/'+title.replace(' ','_')
    ingest(db,[{'id':1000+j*3+k,'type':'story','title':title,'by':'new-topic-user','time':now-1000,'url':url}])
    a=wiki_url(url)
-   merge_metadata(db,a['id'],{**a,'description':topic,'extract':(topic+' is a field of study. ')*14,'categories':[topic],'topicPredictions':{model:0.9},'wikipediaPopularity':(31+j*3+k)*0.000001,'thumbnail':'https://upload.wikimedia.org/wikihack-fixture.svg'})
+   merge_metadata(db,a['id'],{**a,'description':topic,'extract':(topic+' is a field of study. ')*14,'categories':[topic],'topicPredictions':{model:0.9},'wikipediaPopularity':(31+j*3+k)*0.000001,'thumbnail':'' if j==0 and k==2 else 'https://upload.wikimedia.org/wikihack-fixture.svg','imageMetadataVersion':1})
  resolve_threads(db);refresh_stats(db)
 export_static(db,sys.argv[2]+'/data/catalog')
 db.close()
@@ -84,6 +84,15 @@ db.close()
   await context.route('https://en.wikipedia.org/**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname === '/w/api.php') {
+      if (url.searchParams.get('action') === 'parse') {
+        await route.fulfill({ json: { parse: { text: '<div class="mw-parser-output"><table class="ambox"><tr><td><img src="//upload.wikimedia.org/wikipedia/commons/a/ab/Notice.png" width="200" height="200"></td></tr></table><figure><img src="//thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Z_first.gif/320px-Z_first.gif" width="320" height="200"></figure><figure><img src="//upload.wikimedia.org/wikipedia/commons/a/ab/A_later.png" width="400" height="300"></figure></div>' } } });
+        return;
+      }
+      if (url.searchParams.get('prop') === 'imageinfo') {
+        assert.equal(url.searchParams.get('titles'), 'File:Z_first.gif', 'First body image follows article order, skipping maintenance notices');
+        await route.fulfill({ json: { query: { pages: [{ imageinfo: [{ thumburl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Z_first.gif/960px-Z_first.gif' }] }] } } });
+        return;
+      }
       if (url.searchParams.get('prop') === 'pageviews') {
         assert.equal(url.searchParams.get('pvipdays'), '30');
         await route.fulfill({ json: { query: { pages: url.searchParams.get('titles').split('|').map(title => ({
@@ -470,6 +479,16 @@ db.close()
     await page.waitForFunction(() => document.querySelector('#timeline').getAttribute('aria-busy') === 'false');
     const titles = await page.locator('.article-title h2').allTextContents();
     assert.ok(titles.length > 0 && titles.every(title => title.startsWith(prefix)), `${topic} only shows its subject`);
+    if (topic === 'Philosophy & Religion') {
+      const bodyPost = page.locator('.article-card[data-id="en:Ethics 2"]');
+      await bodyPost.locator('.article-body-media img').waitFor();
+      assert.match(await bodyPost.locator('.article-body-media img').getAttribute('src'), /Z_first\.gif/);
+      assert.equal(await bodyPost.locator('.article-body-media img').evaluate(img => getComputedStyle(img).objectFit), 'contain');
+      const cached = await page.evaluate(() => JSON.parse(localStorage.getItem('wikihack:feed')).articles.find(article => article.id === 'en:Ethics 2'));
+      assert.equal(cached.imageMetadataVersion, 2);
+      assert.equal(cached.thumbnailSource, 'article');
+    }
+
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }
   await page.screenshot({ path: 'test-results/pinned-topics-feed.png' });

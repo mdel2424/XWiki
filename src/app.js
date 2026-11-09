@@ -1,8 +1,9 @@
 import { isMainPage } from './article-pages.js';
 import { imageSource, recoverImage } from './images.js';
+import { fetchArticleImage, BODY_IMAGE_VERSION } from './article-images.js';
 import { fetchReadership } from './readership.js';
 import { mergeArticles, applyEnrichment, uniqueAuthors, searchArticles, safeHttps, rankArticles } from './core.js';
-import { enrichArticles, readStorage, writeStorage, fetchFirstParagraph } from './services.js';
+import { enrichArticles, readStorage, writeStorage, fetchFirstParagraph, fetchJson } from './services.js';
 import { recommend, emptyProfile, feedback, hidden, canonicalizeProfile } from './recommendations.js';
 import { FeedSession } from './feed-session.js';
 import { StaticCatalog } from './static-catalog.js';
@@ -36,6 +37,8 @@ const state = {
 let observer, toastTimer, returnFocus, searchTimer, undoAction, homeScroll = 0, homeVisible = 12, generation = 0, searchTicket = 0;
 let refreshingFeed = false;
 const hydrating = new Set();
+const bodyImageAttempts = new Set();
+let bodyImagesRunning = false;
 const expanded = new Set(), paragraphAttempts = new Set();
 const compactCount = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 const paragraphText = article => firstParagraph(article.firstParagraph || (article.sample ? article.extract : '') || article.description || 'An article linked in a Hacker News discussion.');
@@ -207,7 +210,7 @@ function card(article, index) {
       <a class="article-title" href="${esc(wikiHref(article))}" ${wikiTarget}><h2>${esc(article.title)}</h2></a>
       <p class="article-extract" id="post-text-${index}">${esc(open ? paragraph : excerpt(paragraph))}</p>
       ${canExpand || open ? `<button class="read-more" data-action="expand" aria-expanded="${open}" aria-controls="post-text-${index}">${open ? 'Read less' : 'Read more'}</button>` : ''}
-      ${state.settings.images !== false && (media || article.illustration) ? `<a class="article-media ${!media ? 'illustration-media' : ''}" href="${esc(wikiHref(article))}" ${wikiTarget} aria-label="Open ${esc(article.title)} on Wikipedia"><img src="${esc(media || `images/${article.illustration}.svg`)}" alt="${media ? esc(article.title) + ' — Wikipedia lead image' : 'WikiHack illustration'}" loading="lazy" referrerpolicy="no-referrer"><span class="media-caption">${media ? 'wikipedia.org' : 'WikiHack illustration'}</span></a>` : ''}
+      ${state.settings.images !== false && (media || article.illustration) ? `<a class="article-media ${!media ? 'illustration-media' : article.thumbnailSource === 'article' ? 'article-body-media' : ''}" href="${esc(wikiHref(article))}" ${wikiTarget} aria-label="Open ${esc(article.title)} on Wikipedia"><img src="${esc(media || `images/${article.illustration}.svg`)}" alt="${media ? esc(article.title) + (article.thumbnailSource === 'article' ? ' — Wikipedia article image' : ' — Wikipedia lead image') : 'WikiHack illustration'}" loading="lazy" referrerpolicy="no-referrer"><span class="media-caption">${media ? 'wikipedia.org' : 'WikiHack illustration'}</span></a>` : ''}
     </div>
     <div class="post-actions">
       <button data-action="context" aria-label="View Hacker News mentions" title="${stats.count.toLocaleString()} HN mentions">${icon('comment')}<span>${article.sample ? '' : compactCount.format(stats.count)}</span></button>
@@ -244,7 +247,7 @@ function renderTimeline() {
   const emptyTitle = feedUnavailable ? 'Couldn’t load this feed.' : isSearching() && !state.query.trim() ? 'Find your next rabbit hole.' : topic ? `No ${topic.label} posts yet.` : state.page === 'likes' ? 'Give your curiosity a heart.' : 'Nothing here yet.';
   const emptyText = feedUnavailable ? 'Use Retry connection below to try again.' : isSearching() && !state.query.trim() ? 'Search Wikipedia articles shared on Hacker News.' : topic ? 'Try another topic or refresh this list.' : state.page === 'likes' ? 'Like an article to find more posts with related categories.' : 'Try another search or load more articles.';
   $('#timeline').innerHTML = articles.length ? articles.slice(0, state.visible).map(card).join('') : waiting ? (pullIsRefreshing() ? '' : '<div class="feed-loading" role="status"><span class="loader" aria-hidden="true"></span><span>Loading posts…</span></div>') : `<div class="empty-state">${icon(state.page === 'likes' ? 'heart' : 'search')}<h2>${esc(emptyTitle)}</h2><p>${esc(emptyText)}</p></div>`;
-  renderMore(articles); hydrate(articles.slice(0, state.visible)); hydrateParagraphs(articles.slice(0, state.visible));
+  renderMore(articles); hydrate(articles.slice(0, state.visible)); hydrateParagraphs(articles.slice(0, state.visible)); hydrateBodyImages(articles.slice(0, state.visible));
 }
 function renderMore(articles = viewArticles()) {
   if (!$('#load-area')) return;
@@ -376,7 +379,7 @@ function ensureFeed() {
 }
 async function hydrate(articles) {
   if (state.page === 'likes') return;
-  const missing = articles.filter(a => !a.sample && (!a.metadataLoaded || (!a.thumbnail && a.imageMetadataVersion !== 1)) && !hydrating.has(a.id)).slice(0, 12);
+  const missing = articles.filter(a => !a.sample && (!a.metadataLoaded || (!a.thumbnail && !(a.imageMetadataVersion >= 1))) && !hydrating.has(a.id)).slice(0, 12);
   if (!missing.length) return;
   missing.forEach(a => hydrating.add(a.id));
   try {
@@ -391,6 +394,35 @@ async function hydrate(articles) {
     if (JSON.stringify(nextProfile) !== JSON.stringify(state.profile)) persistProfile(nextProfile);
     cache(); if (state.page === 'home' || state.page === 'explore') renderTimeline();
   } catch { /* Original article and HN links remain available. */ }
+}
+async function hydrateBodyImages(articles) {
+  if (state.settings.images === false || bodyImagesRunning) return;
+  const missing = articles.filter(a => !a.sample && !a.thumbnail && (a.imageMetadataVersion >= 1 || state.page === 'likes') && (a.imageMetadataVersion || 0) < BODY_IMAGE_VERSION && !bodyImageAttempts.has(a.id));
+  if (!missing.length) return;
+  missing.forEach(a => bodyImageAttempts.add(a.id));
+  let cursor = 0;
+  bodyImagesRunning = true;
+  try { await Promise.all(Array.from({ length: Math.min(3, missing.length) }, async () => {
+    while (cursor < missing.length) {
+      const article = missing[cursor++];
+      try {
+        const updated = await fetchArticleImage(article, { request: url => fetchJson(url, { timeout: 6000 }) });
+        const patch = { thumbnail: updated.thumbnail, thumbnailSource: updated.thumbnailSource, imageMetadataVersion: updated.imageMetadataVersion };
+        // Update only image fields; other requests may have filled paragraphs or feedback.
+        for (const current of state.articles) if (!current.thumbnail && (current.id === article.id || current.sourceIds?.includes(article.id))) Object.assign(current, patch);
+        const saved = state.profile.likes[article.id];
+        if (saved && !saved.thumbnail) { Object.assign(saved, patch); writeStorage('profile-v1', state.profile); }
+        cache();
+        if (['home', 'explore', 'likes'].includes(state.page)) {
+          const anchor = [...document.querySelectorAll('.article-card')].find(post => post.getBoundingClientRect().bottom > ($('.app-header')?.getBoundingClientRect().bottom || 0));
+          if (anchor) anchoredRender(anchor.dataset.id); else renderTimeline();
+        }
+      } catch { /* Keep the readable text-only post; retry is possible on a later visit. */ }
+    }
+  })); } finally {
+    bodyImagesRunning = false;
+    if (['home', 'explore', 'likes'].includes(state.page)) renderTimeline();
+  }
 }
 async function load({ refresh = false, preserve = null } = {}) {
   const requestedMode = state.mode, requestedSort = state.sort;

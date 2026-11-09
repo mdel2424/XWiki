@@ -82,6 +82,8 @@ export function mergeArticles(existing, incoming) {
     map.set(article.id, { ...previous, ...article, sourceIds: [...new Set([...(previous.sourceIds || []), ...(article.sourceIds || [])])], extract: article.extract || previous.extract,
       firstParagraph: article.firstParagraph || previous.firstParagraph,
       thumbnail: article.thumbnail || previous.thumbnail, description: article.description || previous.description,
+      thumbnailSource: article.thumbnail ? article.thumbnailSource : previous.thumbnailSource,
+      imageMetadataVersion: Math.max(article.imageMetadataVersion || 0, previous.imageMetadataVersion || 0),
       mentions: [...mentions.values()].sort((a, b) => b.createdAt - a.createdAt), sample: false });
   }
   return [...map.values()];

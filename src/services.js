@@ -106,9 +106,10 @@ export async function enrichArticles(articles, { request = fetchJson } = {}) {
           extract: page?.extract || article.extract || '',
           description: page?.terms?.description?.[0] || article.description || '',
           thumbnail: page?.thumbnail?.source || article.thumbnail || '',
+          thumbnailSource: page?.thumbnail?.source ? 'lead' : article.thumbnailSource,
           categories: page?.categories?.map(c => c.title.replace(/^Category:/, '')) || article.categories || [],
           related: page?.links?.map(link => link.title) || article.related || [],
-          imageMetadataVersion: page && !page.missing && !page.invalid ? 1 : article.imageMetadataVersion,
+          imageMetadataVersion: page && !page.missing && !page.invalid ? Math.max(1, article.imageMetadataVersion || 0) : article.imageMetadataVersion,
           metadataLoaded: Boolean(page && !page.missing) });
       }
     }

@@ -1,0 +1,7 @@
+{
+  "hosts": ["upload.wikimedia.org", "thumb.wikimedia.org"],
+  "minWidth": 80,
+  "minHeight": 50,
+  "blockedClasses": ["ambox", "tmbox", "ombox", "fmbox", "cmbox", "imbox", "mbox-small", "hatnote", "navbox", "vertical-navbox", "sidebar", "metadata", "sistersitebox", "sisterproject", "portalbox", "printfooter", "mw-editsection", "mw-indicators", "mw-jump-link", "mwe-math-fallback-image-inline"],
+  "skipFilePrefixes": ["Ambox", "OOjs_UI_icon", "Symbol_category_class", "Question_book", "Wiki_letter", "Wikimedia-logo", "Commons-logo", "Wikidata-logo", "Edit-clear"]
+}
