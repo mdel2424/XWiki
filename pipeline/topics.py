@@ -89,7 +89,7 @@ def publish(catalog='data/catalog', cache='.data/topic-predictions.sqlite'):
     original = manifest_file.read_bytes()
     manifest = json.loads(original)
     if manifest.get('kind') != 'wikihack-static' or not manifest.get('articleCount'):
-        raise ValueError('Not a complete XWiki catalogue.')
+        raise ValueError('Not a complete xWiki catalogue.')
     root = catalog / manifest['generation']
     payload = topic_payload(root, manifest, cache)
     if payload['coverage']['checked'] < manifest.get('topicIndex', {}).get('coverage', {}).get('checked', 0):

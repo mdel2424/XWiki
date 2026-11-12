@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 FAMILIES = ('classification.prediction.articletopic/', 'classification.ores.articletopic/')
-USER_AGENT = 'XWiki/0.2 (https://github.com/mdel2424/XWiki; Wikipedia topic index)'
+USER_AGENT = 'xWiki/0.2 (https://github.com/mdel2424/XWiki; Wikipedia topic index)'
 
 
 def parse_predictions(documents):

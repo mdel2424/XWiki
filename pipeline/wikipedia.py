@@ -20,7 +20,7 @@ SOURCE = {'kind': 'wikimedia-popularity', 'field': 'popularity_score', 'metric':
           'url': 'https://www.mediawiki.org/wiki/Extension:CirrusSearch/Schema#popularity_score',
           'normalization': 'mean-project-pageviews', 'normalizationDays': 30,
           'normalizationUrl': 'https://www.mediawiki.org/wiki/Extension:PageViewInfo#meta=siteviews_(pvis)'}
-USER_AGENT = 'XWiki/0.2 (https://github.com/mdel2424/XWiki; Wikipedia popularity ranking)'
+USER_AGENT = 'xWiki/0.2 (https://github.com/mdel2424/XWiki; Wikipedia popularity ranking)'
 
 
 def cache_db(path):
@@ -290,7 +290,7 @@ def publish(catalog='data/catalog', cache='.data/wikipedia-popularity.sqlite'):
     original = manifest_file.read_bytes()
     manifest = json.loads(original)
     if manifest.get('kind') != 'wikihack-static' or not manifest.get('articleCount'):
-        raise ValueError('Expected a complete XWiki catalogue.')
+        raise ValueError('Expected a complete xWiki catalogue.')
     data = payload(catalog, manifest, cache)
     if data['coverage']['notChecked']:
         raise ValueError('Wikipedia popularity collection is incomplete; rerun to resume before publishing.')

@@ -27,7 +27,7 @@ test('preview serves the homepage and its bundled assets', async () => {
   const homepage = await request('/');
   assert.equal(homepage.status, 200);
   assert.match(homepage.headers['Content-Type'], /^text\/html/);
-  assert.match(homepage.body, /<title>XWiki<\/title>/);
+  assert.match(homepage.body, /<title>xWiki<\/title>/);
   for (const [url, type] of [
     ['/index.html', 'text/html'],
     ['/src/app.js', 'text/javascript'],

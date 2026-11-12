@@ -1,4 +1,4 @@
-# Developing XWiki
+# Developing xWiki
 
 See the [main README](../README.md) for the app demo and feature overview, and the [pipeline notes](pipeline.md) for archive coverage and ranking details.
 

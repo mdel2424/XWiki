@@ -174,7 +174,7 @@ function togglePin(button) {
 function shell() {
   $('#app').innerHTML = `<main class="phone-shell">
     <header class="app-header"><div class="topbar"><button class="settings-button" data-nav="settings" aria-label="Settings">${icon('settings')}</button>
-      <button class="header-brand" data-nav="home" aria-label="XWiki home">XWiki</button>
+      <button class="header-brand" data-nav="home" aria-label="xWiki home">xWiki</button>
       ${state.page === 'home' ? `<button class="topics-button" data-action="topics" aria-label="Browse topics" aria-haspopup="dialog" title="Topics">${icon('timeline-settings')}</button>` : '<span class="header-spacer" aria-hidden="true"></span>'}</div>
       ${state.page === 'home' ? homeTabBar() : state.page === 'explore' ? `<h1 class="sr-only">Search</h1><div class="search-wrap"><label class="search-field">${icon('search')}<input id="search" type="search" aria-label="Search articles" placeholder="Search Wikipedia articles on HN" value="${esc(state.query)}" autocomplete="off"></label></div>` : `<div class="page-heading"><h1>${({ likes: 'Likes', settings: 'Settings' })[state.page]}</h1></div>`}
     </header><div id="page-content"></div>

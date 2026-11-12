@@ -1,6 +1,6 @@
 {
-  "name": "XWiki",
-  "short_name": "XWiki",
+  "name": "xWiki",
+  "short_name": "xWiki",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

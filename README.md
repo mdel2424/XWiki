@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="images/icon-192.png" alt="XWiki icon" width="72" height="72">
+  <img src="images/icon-192.png" alt="xWiki icon" width="72" height="72">
 </p>
 
-# XWiki
+# xWiki
 
 **A Wikipedia rabbit hole, one post at a time.**
 
-XWiki turns Wikipedia articles shared on Hacker News into a personal, X-style feed. Explore more than 200,000 articles, follow your favorite subjects, and jump into the discussions that made people share them.
+xWiki turns Wikipedia articles shared on Hacker News into a personal, X-style feed. Explore more than 200,000 articles, follow your favorite subjects, and jump into the discussions that made people share them.
 
 **[Try the app →](https://mdel2424.github.io/XWiki/)** · [Run locally](#run-locally) · [Development guide](docs/development.md)
 
@@ -19,7 +19,7 @@ XWiki turns Wikipedia articles shared on Hacker News into a personal, X-style fe
     <th>Search</th>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/feed.png" alt="XWiki's personalized feed with Wikipedia article previews and post actions" width="260"></td>
+    <td><img src="docs/screenshots/feed.png" alt="xWiki's personalized feed with Wikipedia article previews and post actions" width="260"></td>
     <td><img src="docs/screenshots/sorting.png" alt="Home sort menu with personalized, Wikipedia, all-time HN, and Rising HN rankings within a topic" width="260"></td>
     <td><img src="docs/screenshots/search.png" alt="Search across Wikipedia articles shared in the Hacker News archive" width="260"></td>
   </tr>
@@ -58,4 +58,4 @@ Python and SQLite are used separately to prepare the archive. For building, test
 
 Articles are discovered through the [Open Index Hacker News archive](https://huggingface.co/datasets/open-index/hacker-news), supplemented by the [official Hacker News API](https://github.com/HackerNews/API), with article content from Wikipedia.
 
-Wikipedia text is CC BY-SA; article histories and image pages provide attribution and image-specific licenses. XWiki is independent of X, Wikipedia, Hacker News, and the original WikiHack.
+Wikipedia text is CC BY-SA; article histories and image pages provide attribution and image-specific licenses. xWiki is independent of X, Wikipedia, Hacker News, and the original WikiHack.
